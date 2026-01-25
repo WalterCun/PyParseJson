@@ -8,12 +8,13 @@ class TolerantTokenizer:
     """
     
     # Patrones de tokens
+    # Formato: (TokenType, Regex Pattern)
     PATTERNS = [
         (TokenType.STRING, r'"(?:\\.|[^"\\])*"'),  # Strings con comillas dobles
         (TokenType.STRING, r"'(?:\\.|[^'\\])*'"),  # Strings con comillas simples (tolerante)
         (TokenType.NUMBER, r'-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?'),
-        (TokenType.BOOLEAN, r'\b(true|false|si|no|yes|on|off)\b', re.IGNORECASE),
-        (TokenType.NULL, r'\b(null|none|nil)\b', re.IGNORECASE),
+        (TokenType.BOOLEAN, r'\b(true|false|si|no|yes|on|off)\b'), # Flags se aplican en el loop
+        (TokenType.NULL, r'\b(null|none|nil)\b'), # Flags se aplican en el loop
         (TokenType.LBRACE, r'\{'),
         (TokenType.RBRACE, r'\}'),
         (TokenType.LBRACKET, r'\['),
@@ -50,18 +51,13 @@ class TolerantTokenizer:
 
             match_found = False
             for token_type, pattern in self.PATTERNS:
-                # Usamos flags=re.IGNORECASE solo para boolean/null si se requiere, 
-                # pero aquí compilamos regex específicas.
-                # Para simplificar, pasamos flags en el match si es necesario o definimos patrones inteligentes.
-                
+                # Aplicar IGNORECASE para booleanos y nulls
                 flags = re.IGNORECASE if token_type in [TokenType.BOOLEAN, TokenType.NULL] else 0
                 regex = re.compile(pattern, flags)
                 match = regex.match(text, pos)
                 
                 if match:
                     value = match.group(0)
-                    # Ajuste para strings: quitar comillas si es STRING
-                    # Pero guardamos raw_value tal cual
                     
                     tokens.append(Token(
                         type=token_type,
