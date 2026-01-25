@@ -1,92 +1,86 @@
-import json
 import sys
 import os
+import json
 
-# Aseguramos que el path del proyecto esté en sys.path para poder importar ppj
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from ppj.engine.context import Context
-from ppj.engine.stages.repair import RepairStage
+from pyparsejson.core.pipeline import Pipeline
+from pyparsejson.models.repair_report import Report
+from pyparsejson.rules.registry import RuleRegistry
+from pyparsejson.rules.base import Rule
+from pyparsejson.core.context import Context
+from pyparsejson.core.token import TokenType
 
-def run_demo(title, input_text):
+# --- DEMO DE EXTENSIBILIDAD ---
+# Definimos una nueva regla "al vuelo" para demostrar que el sistema es dinámico.
+@RuleRegistry.register(tags=["values"], priority=55)
+class UpperCaseKeysRule(Rule):
     """
-    Ejecuta una demostración de reparación sobre un texto dado.
+    Regla de ejemplo: Convierte claves específicas a mayúsculas.
     """
-    print(f"════════════════════════════════════════════════════════════")
-    print(f"ESCENARIO: {title}")
-    print(f"════════════════════════════════════════════════════════════")
-    print(f"► INPUT ORIGINAL:\n{input_text}\n")
+    def applies(self, context: Context) -> bool:
+        return True
 
-    # 1. Crear Contexto
-    ctx = Context(input_text)
+    def apply(self, context: Context):
+        # Solo como demo, convertimos 'ciudad' a 'CIUDAD' si existe
+        for token in context.tokens:
+            if token.type == TokenType.STRING and "ciudad" in token.value:
+                token.value = token.value.replace("ciudad", "CIUDAD")
+                context.record_rule(self.name)
 
-    # 2. Inicializar Stage de Reparación
-    repair_stage = RepairStage()
+# --- FIN DEMO EXTENSIBILIDAD ---
 
-    # 3. Procesar
-    print("► PROCESANDO...")
-    repair_stage.process(ctx)
+class Colors:
+    HEADER = '\033[95m'
+    BLUE = '\033[94m'
+    CYAN = '\033[96m'
+    GREEN = '\033[92m'
+    WARNING = '\033[93m'
+    FAIL = '\033[91m'
+    ENDC = '\033[0m'
+    BOLD = '\033[1m'
 
-    # 4. Mostrar Resultados
-    print(f"► OUTPUT REPARADO:\n{ctx.current_text}\n")
-    
-    print(f"► REGLAS APLICADAS ({len(ctx.applied_rules)}):")
-    for rule in ctx.applied_rules:
-        print(f"  • {rule}")
-    
-    # 5. Validación final con json.loads
-    print("\n► VALIDACIÓN JSON:")
-    try:
-        parsed_obj = json.loads(ctx.current_text)
-        print("  ✅ ÉXITO: El resultado es un JSON válido.")
-        print(f"  🔍 Objeto Python: {parsed_obj}")
-    except json.JSONDecodeError as e:
-        print(f"  ❌ ERROR: Aún no es JSON válido.")
-        print(f"  Details: {e}")
-    
+def print_header(title: str):
+    print(f"\n{Colors.HEADER}════════════════════════════════════════════════════════════{Colors.ENDC}")
+    print(f"{Colors.BOLD}ESCENARIO: {title}{Colors.ENDC}")
+    print(f"{Colors.HEADER}════════════════════════════════════════════════════════════{Colors.ENDC}")
+
+def print_report(input_text: str, report: Report):
+    print(f"\n{Colors.CYAN}► INPUT ORIGINAL:{Colors.ENDC}")
+    print(f"{input_text.strip()}\n")
+
+    print(f"{Colors.BLUE}► FLUJO AUTOMÁTICO EJECUTADO{Colors.ENDC}")
+    print(f"{Colors.BLUE}► REINTENTOS: {report.iterations}{Colors.ENDC}")
+
+    if report.success:
+        print(f"\n{Colors.GREEN}► RESULTADO:{Colors.ENDC}")
+        try:
+            formatted_json = json.dumps(report.python_object, indent=2)
+            print(formatted_json)
+        except:
+            print(report.json_text)
+
+        print(f"\n{Colors.GREEN}► VALIDACIÓN:{Colors.ENDC}")
+        print(f"  ✅ JSON válido")
+        
+        print(f"\n{Colors.BOLD}► REGLAS APLICADAS ({len(report.applied_rules)}):{Colors.ENDC}")
+        for rule in report.applied_rules:
+            print(f"  • {rule}")
+    else:
+        print(f"\n{Colors.FAIL}► FALLO EN LA REPARACIÓN:{Colors.ENDC}")
+        print(f"  ❌ No se pudo generar un JSON válido.")
+        if report.json_text:
+            print(f"\n{Colors.WARNING}► INTENTO FINAL:{Colors.ENDC}")
+            print(report.json_text)
+
     print("\n")
 
+def run_demo():
+    # El pipeline ahora descubre automáticamente las reglas registradas
+    pipeline = Pipeline()
 
-def main():
-    print("INICIANDO DEMOSTRACIÓN MANUAL DE PyParseJson (Fase 1: Reparación)\n")
-
-    # CASO 1: Sintaxis Básica Rota
-    # - Claves sin comillas
-    # - Uso de = en lugar de :
-    # - Comas faltantes
-    text_basic = """
-    nombre=Juan
-    edad=30
-    ciudad: Madrid
-    """
-    run_demo("Sintaxis Básica y Separadores", text_basic)
-
-
-    # CASO 2: Literales y Tipos de Datos
-    # - Booleanos en español (si/no)
-    # - Tuplas en lugar de listas
-    # - Fechas sin comillas
-    text_literals = """
-    {
-        activo: si,
-        admin: no,
-        permisos: (leer, escribir, ejecutar),
-        fecha_registro: 2023-10-27
-    }
-    """
-    run_demo("Literales, Tuplas y Fechas", text_literals)
-
-
-    # CASO 3: Estructura Incompleta
-    # - Falta cerrar llaves
-    # - Comas sobrantes al final
-    text_structure = '{"data": [1, 2, 3, ], "status": "ok"'
-    run_demo("Cierre de Estructuras y Comas Sobrantes", text_structure)
-
-
-    # CASO 4: El 'Frankenstein' (Todo junto)
-    # - Input muy sucio simulando logs o respuestas de LLMs mal formadas
-    text_messy = """
+    # 1️⃣ Caso Frankenstein
+    scenario_frankenstein = """
     user_id=998877
     preferences: {
         theme: dark,
@@ -97,7 +91,23 @@ def main():
         login, logout,
     ]
     """
-    run_demo("Caso Complejo 'Frankenstein'", text_messy)
+    print_header("Reparación Automática – JSON Frankenstein")
+    report = pipeline.parse(scenario_frankenstein)
+    print_report(scenario_frankenstein, report)
+
+    # 2️⃣ Caso Extensibilidad (Regla Custom)
+    scenario_custom = """
+    nombre: "Juan",
+    ciudad: "Madrid"
+    """
+    print_header("Extensibilidad – Regla Custom (ciudad -> CIUDAD)")
+    report_custom = pipeline.parse(scenario_custom)
+    print_report(scenario_custom, report_custom)
 
 if __name__ == "__main__":
-    main()
+    try:
+        os.system('')
+    except:
+        pass
+    print(f"{Colors.BOLD}INICIANDO DEMOSTRACIÓN DE PyParseJson (Arquitectura Extensible){Colors.ENDC}")
+    run_demo()
