@@ -1,6 +1,6 @@
 from typing import List, Optional
 from pyparsejson.core.token import Token
-from pyparsejson.report.repair_report import RepairReport
+from pyparsejson.models.repair_report import Report
 
 class Context:
     """
@@ -9,7 +9,7 @@ class Context:
     def __init__(self, raw_text: str):
         self.raw_text = raw_text
         self.tokens: List[Token] = []
-        self.report = RepairReport()
+        self.report = Report()
         self.current_iteration = 0
         self.max_iterations = 10
         self.changed_in_last_pass = False
