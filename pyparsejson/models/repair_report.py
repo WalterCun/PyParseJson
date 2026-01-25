@@ -2,7 +2,7 @@ from dataclasses import dataclass, field
 from typing import List, Optional, Any, Dict
 
 @dataclass
-class RepairReport:
+class Report:
     success: bool = False
     json_text: Optional[str] = None
     python_object: Optional[Any] = None
