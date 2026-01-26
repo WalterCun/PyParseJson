@@ -9,29 +9,26 @@ class Flow(ABC):
     """
     def __init__(self, engine: RuleEngine):
         self.engine = engine
+        self.max_passes = 3  # Límite de iteraciones internas por flujo
 
     @abstractmethod
-    def execute(self, context: Context):
+    def execute(self, context: Context) -> bool:
+        """
+        Ejecuta la lógica del flujo y devuelve True si hubo cambios.
+        """
         pass
 
-class PreRepairFlow(Flow):
-    """
-    Flujo inicial: Estructura básica y limpieza.
-    """
-    def execute(self, context: Context):
-        self.engine.run_flow(context, tags=["pre_repair", "structure"])
-
-class ValueNormalizationFlow(Flow):
-    """
-    Flujo secundario: Normalización de valores y tipos.
-    """
-    def execute(self, context: Context):
-        self.engine.run_flow(context, tags=["values", "normalization"])
-
-class FinalizationFlow(Flow):
-    """
-    Flujo final: Preparación para JSON estricto.
-    """
-    def execute(self, context: Context):
-        # Aquí podríamos tener reglas de limpieza final o validación ligera
-        pass
+    def run_with_retries(self, context: Context, tags: List[str]) -> bool:
+        """
+        Helper para ejecutar reglas iterativamente mientras haya cambios.
+        Devuelve True si hubo algún cambio en cualquiera de las pasadas.
+        """
+        flow_changed = False
+        for _ in range(self.max_passes):
+            changed_this_pass = self.engine.run_flow(context, tags)
+            if changed_this_pass:
+                flow_changed = True
+            else:
+                # Si el motor no reportó ningún cambio en esta pasada, salimos del bucle
+                break
+        return flow_changed
