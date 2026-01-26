@@ -1,34 +1,10 @@
 import sys
 import os
-import json
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from pyparsejson.core.pipeline import Pipeline
-from pyparsejson.models.repair_report import Report
-from pyparsejson.rules.registry import RuleRegistry
-from pyparsejson.rules.base import Rule
-from pyparsejson.core.context import Context
-from pyparsejson.core.token import TokenType
-
-# --- DEMO DE EXTENSIBILIDAD ---
-# Definimos una nueva regla "al vuelo" para demostrar que el sistema es dinámico.
-@RuleRegistry.register(tags=["values"], priority=55)
-class UpperCaseKeysRule(Rule):
-    """
-    Regla de ejemplo: Convierte claves específicas a mayúsculas.
-    """
-    def applies(self, context: Context) -> bool:
-        return True
-
-    def apply(self, context: Context):
-        # Solo como demo, convertimos 'ciudad' a 'CIUDAD' si existe
-        for token in context.tokens:
-            if token.type == TokenType.STRING and "ciudad" in token.value:
-                token.value = token.value.replace("ciudad", "CIUDAD")
-                context.record_rule(self.name)
-
-# --- FIN DEMO EXTENSIBILIDAD ---
+from pyparsejson.report.repair_report import RepairReport, RepairStatus
 
 class Colors:
     HEADER = '\033[95m'
@@ -40,74 +16,47 @@ class Colors:
     ENDC = '\033[0m'
     BOLD = '\033[1m'
 
-def print_header(title: str):
-    print(f"\n{Colors.HEADER}════════════════════════════════════════════════════════════{Colors.ENDC}")
-    print(f"{Colors.BOLD}ESCENARIO: {title}{Colors.ENDC}")
-    print(f"{Colors.HEADER}════════════════════════════════════════════════════════════{Colors.ENDC}")
-
-def print_report(input_text: str, report: Report):
-    print(f"\n{Colors.CYAN}► INPUT ORIGINAL:{Colors.ENDC}")
-    print(f"{input_text.strip()}\n")
-
-    print(f"{Colors.BLUE}► FLUJO AUTOMÁTICO EJECUTADO{Colors.ENDC}")
-    print(f"{Colors.BLUE}► REINTENTOS: {report.iterations}{Colors.ENDC}")
-
+def print_report(input_text: str, report: RepairReport):
+    print(f"\n{Colors.CYAN}► INPUT:{Colors.ENDC} {input_text.strip()[:60]}...")
+    
+    status_color = Colors.GREEN if report.success else Colors.FAIL
+    print(f"{Colors.BOLD}► ESTADO:{Colors.ENDC} {status_color}{report.status.name}{Colors.ENDC}")
+    print(f"► REGLAS APLICADAS: {len(report.applied_rules)} {report.applied_rules}")
+    print(f"► ITERACIONES: {report.iterations}")
+    
     if report.success:
-        print(f"\n{Colors.GREEN}► RESULTADO:{Colors.ENDC}")
-        try:
-            formatted_json = json.dumps(report.python_object, indent=2)
-            print(formatted_json)
-        except:
-            print(report.json_text)
-
-        print(f"\n{Colors.GREEN}► VALIDACIÓN:{Colors.ENDC}")
-        print(f"  ✅ JSON válido")
-        
-        print(f"\n{Colors.BOLD}► REGLAS APLICADAS ({len(report.applied_rules)}):{Colors.ENDC}")
-        for rule in report.applied_rules:
-            print(f"  • {rule}")
+        print(f"{Colors.GREEN}► JSON:{Colors.ENDC} {report.json_text}")
     else:
-        print(f"\n{Colors.FAIL}► FALLO EN LA REPARACIÓN:{Colors.ENDC}")
-        print(f"  ❌ No se pudo generar un JSON válido.")
-        if report.json_text:
-            print(f"\n{Colors.WARNING}► INTENTO FINAL:{Colors.ENDC}")
-            print(report.json_text)
-
-    print("\n")
+        print(f"{Colors.FAIL}► ERROR:{Colors.ENDC} {report.errors[-1] if report.errors else 'Unknown'}")
+        print(f"{Colors.WARNING}► INTENTO:{Colors.ENDC} {report.json_text}")
 
 def run_demo():
-    # El pipeline ahora descubre automáticamente las reglas registradas
+    print(f"{Colors.BOLD}PYPARSEJSON - DEMO INCREMENTAL REAL{Colors.ENDC}")
+    
     pipeline = Pipeline()
-
-    # 1️⃣ Caso Frankenstein
-    scenario_frankenstein = """
+    
+    # Caso 1: Reparación Exitosa (Pares sueltos)
+    text_success = 'user: "admin", active: si'
+    print(f"\n{Colors.HEADER}CASO 1: Pares Sueltos (WrapRootObject){Colors.ENDC}")
+    report = pipeline.parse(text_success)
+    print_report(text_success, report)
+    
+    # Caso 2: Frankenstein
+    text_frank = """
     user_id=998877
     preferences: {
         theme: dark,
         notifications: (email, sms)
     }
     verified: si
-    history: [
-        login, logout,
-    ]
     """
-    print_header("Reparación Automática – JSON Frankenstein")
-    report = pipeline.parse(scenario_frankenstein)
-    print_report(scenario_frankenstein, report)
-
-    # 2️⃣ Caso Extensibilidad (Regla Custom)
-    scenario_custom = """
-    nombre: "Juan",
-    ciudad: "Madrid"
-    """
-    print_header("Extensibilidad – Regla Custom (ciudad -> CIUDAD)")
-    report_custom = pipeline.parse(scenario_custom)
-    print_report(scenario_custom, report_custom)
+    print(f"\n{Colors.HEADER}CASO 2: Frankenstein{Colors.ENDC}")
+    report = pipeline.parse(text_frank)
+    print_report(text_frank, report)
 
 if __name__ == "__main__":
     try:
         os.system('')
     except:
         pass
-    print(f"{Colors.BOLD}INICIANDO DEMOSTRACIÓN DE PyParseJson (Arquitectura Extensible){Colors.ENDC}")
     run_demo()

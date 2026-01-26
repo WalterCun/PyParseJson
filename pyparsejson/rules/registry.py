@@ -15,6 +15,7 @@ class RuleRegistry:
             # Registrar bajo 'all'
             cls._registry['all'].append(rule_cls)
             return rule_cls
+        # print(cls._registry)
         return decorator
 
     @classmethod
