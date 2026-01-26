@@ -25,7 +25,8 @@ class TolerantTokenizer:
         (TokenType.ASSIGN, r'='),
         (TokenType.COMMA, r','),
         # Bare words: identificadores sin comillas, incluyendo fechas simples o palabras compuestas
-        (TokenType.BARE_WORD, r'[a-zA-Z_][a-zA-Z0-9_\-\.]*'), 
+        # IMPORTANTE: Debe ir DESPUÉS de los separadores para no capturarlos.
+        (TokenType.BARE_WORD, r'[a-zA-Z_][a-zA-Z0-9_\-]*'), 
         (TokenType.UNKNOWN, r'.'), # Cualquier otro caracter (espacios se manejan aparte)
     ]
 
@@ -35,6 +36,12 @@ class TolerantTokenizer:
         line = 1
         column = 1
         
+        # Compilamos todas las regex una sola vez para eficiencia
+        COMPILED_PATTERNS = []
+        for token_type, pattern in self.PATTERNS:
+            flags = re.IGNORECASE if token_type in [TokenType.BOOLEAN, TokenType.NULL] else 0
+            COMPILED_PATTERNS.append((token_type, re.compile(pattern, flags)))
+
         while pos < len(text):
             # Saltar espacios en blanco pero mantener conteo de líneas
             match_space = re.match(r'\s+', text[pos:])
@@ -50,15 +57,16 @@ class TolerantTokenizer:
                 continue
 
             match_found = False
-            for token_type, pattern in self.PATTERNS:
-                # Aplicar IGNORECASE para booleanos y nulls
-                flags = re.IGNORECASE if token_type in [TokenType.BOOLEAN, TokenType.NULL] else 0
-                regex = re.compile(pattern, flags)
+            for token_type, regex in COMPILED_PATTERNS:
                 match = regex.match(text, pos)
                 
                 if match:
                     value = match.group(0)
                     
+                    # Evitar que BARE_WORD capture solo un punto.
+                    if token_type == TokenType.BARE_WORD and value == ".":
+                        continue
+
                     tokens.append(Token(
                         type=token_type,
                         value=value,
@@ -75,7 +83,6 @@ class TolerantTokenizer:
             
             if not match_found:
                 # Safety break para evitar loop infinito si algo falla catastróficamente
-                # (aunque UNKNOWN debería atrapar todo)
                 pos += 1
                 column += 1
                 
