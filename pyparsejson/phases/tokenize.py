@@ -2,19 +2,27 @@ import re
 from typing import List
 from pyparsejson.core.token import Token, TokenType
 
+
 class TolerantTokenizer:
     """
     Convierte texto en una lista de tokens, siendo tolerante a errores.
     """
-    
+
     # Patrones de tokens
     # Formato: (TokenType, Regex Pattern)
+    # EL ORDEN IMPORTA: Patrones más específicos van antes de los genéricos.
     PATTERNS = [
         (TokenType.STRING, r'"(?:\\.|[^"\\])*"'),  # Strings con comillas dobles
         (TokenType.STRING, r"'(?:\\.|[^'\\])*'"),  # Strings con comillas simples (tolerante)
+
+        # --- PATRONES ESPECÍFICOS ---
+        # FECHA: Usamos \b (word boundary) en lugar de look-behinds para evitar el error de regex.
+        # Captura 2026-01-01 pero no dentro de una palabra como abc2026-01-01
+        (TokenType.DATE, r'\b\d{4}-\d{2}-\d{2}\b'),
+
         (TokenType.NUMBER, r'-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?'),
-        (TokenType.BOOLEAN, r'\b(true|false|si|no|yes|on|off)\b'), # Flags se aplican en el loop
-        (TokenType.NULL, r'\b(null|none|nil)\b'), # Flags se aplican en el loop
+        (TokenType.BOOLEAN, r'\b(true|false|si|no|yes|on|off)\b'),
+        (TokenType.NULL, r'\b(null|none|nil)\b'),
         (TokenType.LBRACE, r'\{'),
         (TokenType.RBRACE, r'\}'),
         (TokenType.LBRACKET, r'\['),
@@ -24,10 +32,10 @@ class TolerantTokenizer:
         (TokenType.COLON, r':'),
         (TokenType.ASSIGN, r'='),
         (TokenType.COMMA, r','),
-        # Bare words: identificadores sin comillas, incluyendo fechas simples o palabras compuestas
-        # IMPORTANTE: Debe ir DESPUÉS de los separadores para no capturarlos.
-        (TokenType.BARE_WORD, r'[a-zA-Z_][a-zA-Z0-9_\-]*'), 
-        (TokenType.UNKNOWN, r'.'), # Cualquier otro caracter (espacios se manejan aparte)
+
+        # Bare words: Se añaden rangos de caracteres acentuados para soporte básico UTF-8
+        (TokenType.BARE_WORD, r'[\wÀ-ÖØ-öø-ÿ][\w\-À-ÖØ-öø-ÿ]*'),
+        (TokenType.UNKNOWN, r'.'),  # Cualquier otro caracter
     ]
 
     def tokenize(self, text: str) -> List[Token]:
@@ -35,7 +43,7 @@ class TolerantTokenizer:
         pos = 0
         line = 1
         column = 1
-        
+
         # Compilamos todas las regex una sola vez para eficiencia
         COMPILED_PATTERNS = []
         for token_type, pattern in self.PATTERNS:
@@ -59,10 +67,10 @@ class TolerantTokenizer:
             match_found = False
             for token_type, regex in COMPILED_PATTERNS:
                 match = regex.match(text, pos)
-                
+
                 if match:
                     value = match.group(0)
-                    
+
                     # Evitar que BARE_WORD capture solo un punto.
                     if token_type == TokenType.BARE_WORD and value == ".":
                         continue
@@ -75,15 +83,15 @@ class TolerantTokenizer:
                         line=line,
                         column=column
                     ))
-                    
+
                     pos += len(value)
                     column += len(value)
                     match_found = True
                     break
-            
+
             if not match_found:
-                # Safety break para evitar loop infinito si algo falla catastróficamente
+                # Safety break para evitar loop infinito
                 pos += 1
                 column += 1
-                
+
         return tokens

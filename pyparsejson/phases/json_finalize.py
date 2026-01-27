@@ -1,11 +1,14 @@
 from pyparsejson.core.context import Context
 from pyparsejson.core.token import TokenType
 
+
 class JSONFinalize:
     """
     Convierte la lista de tokens reparada en un string JSON estricto.
     """
-    def process(self, context: Context) -> str:
+
+    @staticmethod
+    def process(context: Context) -> str:
         parts = []
         for token in context.tokens:
             if token.type == TokenType.STRING:
@@ -17,10 +20,14 @@ class JSONFinalize:
                     val = f'"{val}"'
                 parts.append(val)
             elif token.type == TokenType.BOOLEAN:
-                parts.append(token.value.lower()) # true/false
+                parts.append(token.value.lower())  # true/false
             elif token.type == TokenType.NULL:
                 parts.append("null")
+            elif token.type == TokenType.DATE:
+                # Fechas: Se convierten a string JSON
+                val = token.value
+                parts.append(f'"{val}"')
             else:
                 parts.append(token.value)
-        
+
         return "".join(parts)
