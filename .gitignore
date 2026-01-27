@@ -205,3 +205,12 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+/.idea/inspectionProfiles/profiles_settings.xml
+/.idea/inspectionProfiles/Project_Default.xml
+/.idea/.gitignore
+/.idea/git_toolbox_prj.xml
+/.idea/misc.xml
+/.idea/modules.xml
+/.idea/PyParseJson.iml
+/.idea/vcs.xml
+/uv.lock
