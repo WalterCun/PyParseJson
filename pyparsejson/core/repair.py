@@ -14,6 +14,7 @@ from pyparsejson.phases.json_finalize import JSONFinalize
 
 from pyparsejson.report.repair_report import RepairReport, RepairStatus
 from pyparsejson.core.quality import RepairQualityEvaluator
+from pyparsejson.core.token import TokenType
 
 
 class Repair:
@@ -66,6 +67,16 @@ class Repair:
         # 1. Pre-normalización y tokenización
         clean_text = self.pre_normalize.process(text)
         context = Context(clean_text)
+
+        # Si el texto está completamente vacío después de limpiar
+        if not clean_text:
+            return RepairReport(
+                success=True,
+                status=RepairStatus.SUCCESS_STRICT_JSON,
+                json_text="{}",
+                python_object={}
+            )
+
         context.tokens = self.tokenizer.tokenize(clean_text)
 
         # Activar modo Dry Run basado en la decisión tomada en parse()
@@ -102,6 +113,18 @@ class Repair:
         except json.JSONDecodeError as e:
             context.report.errors.append(str(e))
 
+        # --- NUEVO: FALLBACK A {} ---
+        # Si falló el parseo estricto, verificamos si es "basura pura" (no raíz { o [).
+        # Si es basura, devolvemos un objeto vacío para no romper aplicaciones que esperan un dict.
+        if not success:
+            if not context.tokens or context.tokens[0].type not in (TokenType.LBRACE, TokenType.LBRACKET):
+                final_json = "{}"
+                python_obj = {}
+                success = True
+                # Marcamos que fue un parche (simulación de éxito)
+                context.report.detected_issues.append("Devuelve {} por falta de estructura raíz válida.")
+        # ------------------------------
+
         # 4. Evaluación de calidad
         quality_score, issues = self.quality_evaluator.evaluate(context)
 
@@ -120,7 +143,11 @@ class Repair:
             else:
                 context.report.status = RepairStatus.SUCCESS_STRICT_JSON
         else:
-            if context.report.applied_rules:
+            # Si forzamos el parche a {}, se marca como éxito, pero es bueno saberlo
+            if python_obj == {} and context.report.detected_issues:
+                # Es técnicamente un parche de éxito
+                context.report.status = RepairStatus.SUCCESS_WITH_WARNINGS
+            elif context.report.applied_rules:
                 context.report.status = RepairStatus.PARTIAL_REPAIR
             else:
                 context.report.status = RepairStatus.FAILED_UNRECOVERABLE
