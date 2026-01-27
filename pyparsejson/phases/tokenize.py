@@ -16,8 +16,7 @@ class TolerantTokenizer:
         (TokenType.STRING, r"'(?:\\.|[^'\\])*'"),  # Strings con comillas simples (tolerante)
 
         # --- PATRONES ESPECÍFICOS ---
-        # FECHA: Usamos \b (word boundary) en lugar de look-behinds para evitar el error de regex.
-        # Captura 2026-01-01 pero no dentro de una palabra como abc2026-01-01
+        # FECHA: Usamos \b (word boundary) en lugar de look-behinds.
         (TokenType.DATE, r'\b\d{4}-\d{2}-\d{2}\b'),
 
         (TokenType.NUMBER, r'-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?'),
@@ -34,6 +33,7 @@ class TolerantTokenizer:
         (TokenType.COMMA, r','),
 
         # Bare words: Se añaden rangos de caracteres acentuados para soporte básico UTF-8
+        # CORRECCIÓN: Agregamos guiones - para soportar teléfonos
         (TokenType.BARE_WORD, r'[\wÀ-ÖØ-öø-ÿ][\w\-À-ÖØ-öø-ÿ]*'),
         (TokenType.UNKNOWN, r'.'),  # Cualquier otro caracter
     ]
