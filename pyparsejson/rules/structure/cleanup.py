@@ -43,10 +43,10 @@ class StripPrefixGarbageRule(Rule):
     """
     Elimina prefijos de texto (basura) antes de la estructura JSON real.
 
-    Ejemplos:
-    1. "hola mundo {key: val}" -> "{key: val}"
-    2. "log inicio [1, 2, 3]" -> "[1, 2, 3]"
-    3. "prefijo clave: valor" -> "clave: valor"
+    Lógica corregida:
+    - Si empieza con { o [, no hacer nada.
+    - Si empieza con una palabra clave (ej. "user:"), NO ES BASURA.
+    - Solo cortar si el inicio NO tiene estructura y luego sí la hay.
     """
 
     def applies(self, context: Context) -> bool:
@@ -58,17 +58,22 @@ class StripPrefixGarbageRule(Rule):
         if tokens[0].type in (TokenType.LBRACE, TokenType.LBRACKET):
             return False
 
-        # Buscar si hay algo que parezca estructura después del inicio
-        # 1. Buscar { o [
-        # 2. Buscar "palabra" :
+        # MIRAR SI EL INICIO ES UNA CLAVE VÁLIDA (palabra + : o =)
+        # Si lo es, no es basura, es el inicio del objeto JSON.
+        if tokens[0].type == TokenType.BARE_WORD:
+            if len(tokens) > 1 and tokens[1].type in (TokenType.COLON, TokenType.ASSIGN):
+                return False  # No aplicar, el inicio es válido (ej: user: admin)
+
+        # Si llegamos aquí, probablemente hay basura al inicio.
+        # Buscamos estructura posterior para cortar prefijo.
         for i in range(1, len(tokens)):
             if tokens[i].type in (TokenType.LBRACE, TokenType.LBRACKET):
-                return True  # Encontramos estructura posterior, hay que borrar prefijo
+                return True
 
-            # Buscar clave: valor
+                # Buscar clave: valor
             if tokens[i].type == TokenType.BARE_WORD:
                 if i + 1 < len(tokens) and tokens[i + 1].type == TokenType.COLON:
-                    return True  # Encontramos par clave:valor, borramos lo anterior
+                    return True
 
         return False
 
@@ -85,10 +90,8 @@ class StripPrefixGarbageRule(Rule):
                 break
 
             # Opción B: Inicio de par clave:valor (si no hay llaves)
-            # Solo si no estamos al principio (índice 0)
-            if tokens[i].type == TokenType.BARE_WORD and i > 0:
+            if tokens[i].type == TokenType.BARE_WORD:
                 if i + 1 < len(tokens) and tokens[i + 1].type == TokenType.COLON:
-                    # Este es el inicio real (la clave)
                     start_index = i
                     break
 
