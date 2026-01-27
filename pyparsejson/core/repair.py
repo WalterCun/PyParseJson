@@ -1,5 +1,5 @@
 import json
-from typing import List
+from typing import List, Optional
 
 from pyparsejson.core.context import Context
 from pyparsejson.core.engine import RuleEngine
@@ -16,17 +16,20 @@ from pyparsejson.report.repair_report import RepairReport, RepairStatus
 from pyparsejson.core.quality import RepairQualityEvaluator
 
 
-class Pipeline:
+class Repair:
     """
     Orquestador principal del proceso de reparación de JSON.
     """
 
-    def __init__(self, auto_flows: bool = True):
+    def __init__(self, auto_flows: bool = True, dry_run: bool = False):
         self.engine = RuleEngine()
         self.pre_normalize = PreNormalizeText()
         self.tokenizer = TolerantTokenizer()
         self.finalizer = JSONFinalize()
         self.quality_evaluator = RepairQualityEvaluator()
+
+        # Configuración por defecto
+        self.dry_run = dry_run
 
         # Flujo de arranque (SIEMPRE se ejecuta primero)
         self.bootstrap_flow = BootstrapRepairFlow(self.engine)
@@ -40,11 +43,34 @@ class Pipeline:
             flow.engine = self.engine
         self.user_flows.append(flow)
 
-    def parse(self, text: str) -> RepairReport:
+    def parse(self, text: str, dry_run: Optional[bool] = None) -> RepairReport:
+        """
+        Ejecuta el proceso de reparación.
+
+        Args:
+            text: El texto a reparar.
+            dry_run (optional):
+                - Si es True: Ejecuta en modo auditoría (sin afectar nada externamente).
+                - Si es False: Ejecuta normal.
+                - Si es None (Default): Usa la configuración definida en el constructor.
+        """
+        # Lógica de prioridad: El argumento del método sobrescribe al del constructor
+        effective_dry_run = self.dry_run if dry_run is None else dry_run
+
+        return self._run(text, dry_run=effective_dry_run)
+
+    def _run(self, text: str, dry_run: bool = False) -> RepairReport:
+        """
+        Método interno compartido por parse() (usando configuración de instancia o override).
+        """
         # 1. Pre-normalización y tokenización
         clean_text = self.pre_normalize.process(text)
         context = Context(clean_text)
         context.tokens = self.tokenizer.tokenize(clean_text)
+
+        # Activar modo Dry Run basado en la decisión tomada en parse()
+        context.dry_run = dry_run
+        context.report.was_dry_run = dry_run
 
         success = False
         python_obj = None
@@ -76,7 +102,7 @@ class Pipeline:
         except json.JSONDecodeError as e:
             context.report.errors.append(str(e))
 
-        # 4. Evaluación de calidad (UNA sola vez)
+        # 4. Evaluación de calidad
         quality_score, issues = self.quality_evaluator.evaluate(context)
 
         # 5. Construcción del reporte final
