@@ -1,9 +1,9 @@
 import unittest
-from pyparsejson.core.pipeline import Pipeline
+from pyparsejson.core.pipeline import Repair
 
 class TestPipeline(unittest.TestCase):
     def setUp(self):
-        self.pipeline = Pipeline()
+        self.pipeline = Repair()
 
     def test_basic_assignment(self):
         text = "key=value"
