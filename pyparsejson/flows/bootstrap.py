@@ -1,5 +1,6 @@
-from pyparsejson.core.flow import Flow
 from pyparsejson.core.context import Context
+from pyparsejson.core.flow import Flow
+
 
 class BootstrapRepairFlow(Flow):
     """
@@ -7,9 +8,11 @@ class BootstrapRepairFlow(Flow):
     Se encarga de las reparaciones estructurales más críticas que habilitan
     el funcionamiento del resto de las reglas.
     """
+    immutable = True
+
     def __init__(self, engine):
         super().__init__(engine)
-        self.max_passes = 5 
+        self.max_passes = 5
 
     def execute(self, context: Context) -> bool:
         """
