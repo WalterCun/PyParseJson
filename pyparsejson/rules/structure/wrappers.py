@@ -66,3 +66,27 @@ class StripPrefixGarbageRule(Rule):
                           t.type != TokenType.BARE_WORD or t.value.lower() not in self.NON_JSON_STARTERS]
         context.mark_changed()
         context.record_rule(self.name)
+
+
+@RuleRegistry.register(tags=["structure", "bootstrap"], priority=5)
+class WrapRootObjectRule(Rule):
+    """Envuelve pares sueltos en objeto raíz { ... }"""
+
+    def applies(self, context: Context) -> bool:
+        tokens = context.tokens
+        if not tokens or tokens[0].type in (TokenType.LBRACE, TokenType.LBRACKET):
+            return False
+        # Detectar patrón clave:valor sin estructura raíz
+        for i in range(len(tokens) - 1):
+            if (tokens[i].type in (TokenType.BARE_WORD, TokenType.STRING) and
+                    tokens[i + 1].type in (TokenType.COLON, TokenType.ASSIGN)):
+                return True
+        return False
+
+    def apply(self, context: Context):
+        context.tokens = [
+            Token(TokenType.LBRACE, "{", "{", 0),
+            *context.tokens,
+            Token(TokenType.RBRACE, "}", "}", len(context.tokens))
+        ]
+        context.mark_changed()

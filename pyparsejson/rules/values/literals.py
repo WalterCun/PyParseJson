@@ -48,14 +48,7 @@ class QuoteBareWordsRule(Rule):
         changed = False
         for i, token in enumerate(context.tokens):
             if token.type == TokenType.BARE_WORD:
-                is_key = False
-                if i + 1 < len(context.tokens):
-                    if context.tokens[i + 1].type == TokenType.COLON:
-                        is_key = True
-
-                if is_key:
-                    continue  # ⬅️ NO TOCAR CLAVES
-
+                # Convertir TODAS las palabras sin comillas a strings (claves y valores)
                 token.type = TokenType.STRING
                 token.value = f'"{token.value}"'
                 token.raw_value = token.value

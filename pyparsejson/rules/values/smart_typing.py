@@ -14,7 +14,6 @@ class SmartTypingRule(Rule):
     """
 
     # Patrones de nombres de claves que sugieren que el valor DEBE ser un string
-    # Incluye fechas, emails, ids, rutas, nombres.
     STRING_HINTS = re.compile(
         r'(date|time|at|timestamp|created|updated|birth|'  # Fechas
         r'email|mail|user|login|id|uuid|key|code|'  # Identificadores
@@ -24,18 +23,11 @@ class SmartTypingRule(Rule):
     )
 
     # Patrones de nombres de claves que sugieren que el valor DEBE ser un número
-    # (Útil si el tokenizer lo detectó como BARE_WORD)
     NUMBER_HINTS = re.compile(
         r'(count|amount|total|price|cost|qty|quantity|'  # Finanzas/Cantidad
         r'lat|lng|longitude|latitude|'  # Coordenadas
         r'score|weight|height|width|size)'  # Medidas
     )
-
-    # --- NUEVA REGLA ---
-    # Patrón para detectar listas implícitas (ej: ids: 1, 2, 3)
-    # Si la clave sugiere una lista (plurales) y hay números separados por comas,
-    # asumimos que es una lista implícita.
-    IMPLICIT_ARRAY_HINTS = re.compile(r'(ids|items|data|list).*\b(plural_list|array|ids)\b')
 
     def applies(self, context: Context) -> bool:
         tokens = context.tokens
@@ -51,7 +43,7 @@ class SmartTypingRule(Rule):
 
             if is_key and is_separator:
                 val_token = tokens[i + 2]
-                # --- IMPORTANTE: Ignoramos si ya es un String o Date procesado ---
+                # Ignorar si ya es un String o Date procesado
                 if val_token.type in (TokenType.BARE_WORD, TokenType.NUMBER):
                     key_name = key_token.value.strip('"').lower()
                     if self.STRING_HINTS.search(key_name) or self.NUMBER_HINTS.search(key_name):
@@ -68,12 +60,8 @@ class SmartTypingRule(Rule):
             current = tokens[i]
             new_tokens.append(current)
 
-            # Verificamos límites para evitar IndexError
             if i + 2 >= len(tokens):
-                # Si no hay suficientes tokens para formar KEY : VALUE, terminamos el loop aquí
-                # aunque se pierde procesar el último valor, es preferible a un crashe.
-                i += 1
-                continue
+                break
 
             next_sep = tokens[i + 1]
             next_val = tokens[i + 2]
@@ -92,7 +80,6 @@ class SmartTypingRule(Rule):
                         next_val.raw_value = next_val.value
                         changed = True
                     elif next_val.type == TokenType.NUMBER:
-                        # No convertimos si parece fecha ISO (aunque aquí ya fue tokenizado antes)
                         if not re.match(r'\d{4}-\d{2}-\d{2}', next_val.value):
                             next_val.type = TokenType.STRING
                             next_val.value = f'"{next_val.value}"'
