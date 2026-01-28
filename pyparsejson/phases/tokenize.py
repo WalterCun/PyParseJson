@@ -11,23 +11,43 @@ class TolerantTokenizer:
 
     # Patrones de tokens en orden de precedencia (más específico a más genérico)
     PATTERNS = [
-        (TokenType.STRING, r'"(?:\\.|[^"\\])*"'),  # Strings con comillas dobles
-        (TokenType.STRING, r"'(?:\\.|[^'\\])*'"),  # Strings con comillas simples (tolerante)
-        (TokenType.DATE, r'\b\d{4}-\d{2}-\d{2}\b'), # Fechas en formato YYYY-MM-DD
+        # URLs completas (DEBE ir ANTES de COLON para evitar fragmentación https:// → https + : + //)
+        (TokenType.STRING, r'https?://[^\s"\'\]\}\),]+'),
+
+        # Fechas y formatos especiales (antes de números para evitar 2026-01-01 → 2026 - 01 - 01)
+        (TokenType.STRING, r'\d{4}-\d{2}-\d{2}'),  # Fechas YYYY-MM-DD
+        (TokenType.STRING, r'\d{3}-\d{3}-\d{4}'),  # Teléfonos NNN-NNN-NNNN
+        (TokenType.STRING, r'\d{5}(-\d{4})?'),  # Códigos postales
+
+        # Strings estándar
+        (TokenType.STRING, r'"(?:\\.|[^"\\])*"'),  # Comillas dobles
+        (TokenType.STRING, r"'(?:\\.|[^'\\])*'"),  # Comillas simples
+
+        # Números (antes de BARE_WORD para evitar fragmentación)
         (TokenType.NUMBER, r'-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?'),
+
+        # Booleanos y null
         (TokenType.BOOLEAN, r'\b(true|false|si|no|yes|on|off)\b'),
         (TokenType.NULL, r'\b(null|none|nil)\b'),
+
+        # Estructuras
         (TokenType.LBRACE, r'\{'),
         (TokenType.RBRACE, r'\}'),
         (TokenType.LBRACKET, r'\['),
         (TokenType.RBRACKET, r'\]'),
         (TokenType.LPAREN, r'\('),
         (TokenType.RPAREN, r'\)'),
+
+        # Separadores (DESPUÉS de URLs/fechas para no fragmentar)
         (TokenType.COLON, r':'),
         (TokenType.ASSIGN, r'='),
         (TokenType.COMMA, r','),
-        (TokenType.BARE_WORD, r'[\wÀ-ÖØ-öø-ÿ][\w\-À-ÖØ-öø-ÿ]*'), # Palabras sin comillas, con soporte para guiones y acentos
-        (TokenType.UNKNOWN, r'.'),  # Cualquier otro caracter
+
+        # Palabras (último para evitar colisiones)
+        (TokenType.BARE_WORD, r'[\wÀ-ÖØ-öø-ÿ][\w\-À-ÖØ-öø-ÿ]*'),
+
+        # Cualquier otro caracter
+        (TokenType.UNKNOWN, r'.'),
     ]
 
     def __init__(self):

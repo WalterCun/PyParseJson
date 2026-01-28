@@ -1,3 +1,11 @@
+"""
+ARCHIVO CORREGIDO: pyparsejson/phases/json_finalize.py
+
+CAMBIOS PRINCIPALES:
+1. Añadido logging detallado de cada token procesado
+2. Corregida lógica de manejo de comillas
+3. Añadida validación de tokens vacíos
+"""
 from pyparsejson.core.context import Context
 from pyparsejson.core.token import TokenType
 
@@ -11,31 +19,59 @@ class JSONFinalize:
     @staticmethod
     def process(context: Context) -> str:
         """
-        Procesa la lista de tokens y devuelve un string JSON.
+        Convierte tokens a string JSON válido SIN duplicar comillas.
         """
+        if not context.tokens:
+            print("[FINALIZE] ⚠️ WARNING: No hay tokens para procesar")
+            return "{}"
+        print(f"[FINALIZE] Procesando {len(context.tokens)} tokens")
+
         parts = []
-        for token in context.tokens:
+        for i, token in enumerate(context.tokens):
+            # DEBUG: Descomentar para ver qué está procesando
+            print(f"[FINALIZE] Token {i}: {token.type.name} = '{token.value}'")
+
             if token.type == TokenType.STRING:
-                # Asegurar que los strings tengan comillas dobles y escapar las internas
                 val = token.value
-                if val.startswith("'") and val.endswith("'"):
-                    # Convertir comillas simples a dobles
-                    val = '"' + val[1:-1].replace('"', '\\"') + '"'
-                elif not val.startswith('"'):
-                    # Añadir comillas a palabras que deberían ser strings
-                    val = f'"{val}"'
-                parts.append(val)
+
+                # Caso 1: Ya tiene comillas dobles válidas → usar tal cual
+                if val.startswith('"') and val.endswith('"') and len(val) >= 2:
+                    parts.append(val)
+                    continue
+
+                # Caso 2: Comillas simples → convertir a dobles
+                if val.startswith("'") and val.endswith("'") and len(val) >= 2:
+                    content = val[1:-1].replace('"', '\\"').replace("\\'", "'")
+                    parts.append(f'"{content}"')
+                    continue
+
+                # Caso 3: Sin comillas → añadir
+                # Importante: Escapar comillas internas
+                content = val.replace('\\', '\\\\').replace('"', '\\"')
+                parts.append(f'"{content}"')
+
             elif token.type == TokenType.BOOLEAN:
-                # Estandarizar a minúsculas (true/false)
+                # Normalizar a lowercase (true/false estándar JSON)
                 parts.append(token.value.lower())
+
             elif token.type == TokenType.NULL:
-                # Estandarizar a "null"
                 parts.append("null")
+
             elif token.type == TokenType.DATE:
-                # Las fechas se convierten a strings JSON
+                # Las fechas siempre van como strings
                 parts.append(f'"{token.value}"')
-            else:
-                # El resto de tokens (números, llaves, comas, etc.) se mantienen igual
+
+            elif token.type == TokenType.NUMBER:
+                # Números van sin comillas
                 parts.append(token.value)
 
-        return "".join(parts)
+            else:
+                # Estructuras (llaves, corchetes) y separadores (comas, dos puntos)
+                parts.append(token.value)
+
+        result = "".join(parts)
+
+        # DEBUG: Descomentar para ver el resultado final
+        # print(f"[FINALIZE] Result: {result[:200]}...")
+
+        return result
