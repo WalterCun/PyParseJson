@@ -1,12 +1,20 @@
+"""
+PyParseJson: Una librería robusta para reparar y parsear JSON mal formado.
+
+Este módulo expone las funciones principales `load` y `loads`, diseñadas para ser
+reemplazos directos (drop-in replacements) de las funciones estándar de `json`,
+pero con capacidades avanzadas de recuperación de errores.
+"""
+
 import json
 from typing import TextIO, Any, Optional
 
-# Importamos los componentes internos necesarios
 from pyparsejson.core.repair import Repair
 from pyparsejson.core.flow import Flow
 from pyparsejson.report.repair_report import RepairStatus
 
 __version__ = "0.2.0"
+__all__ = ["load", "loads", "Repair", "Flow", "RepairStatus", "JSONDecodeError"]
 
 
 def loads(text: str, *, auto_flows: bool = True, flow: Optional[Flow] = None) -> Any:
@@ -30,7 +38,11 @@ def loads(text: str, *, auto_flows: bool = True, flow: Optional[Flow] = None) ->
     """
     if not isinstance(text, str):
         # Intento de compatibilidad con json.loads que también acepta bytes
-        text = text.decode('utf-8')
+        try:
+            text = text.decode('utf-8')
+        except AttributeError:
+            # Si no tiene decode, asumimos que ya es str o fallará más adelante
+            pass
 
     # Inicializamos el motor de reparación
     pipeline = Repair(auto_flows=auto_flows)
@@ -60,6 +72,14 @@ def load(fp: TextIO, *, auto_flows: bool = True, flow: Optional[Flow] = None) ->
     Deserializa `fp` (un archivo .read() soportado) a un objeto Python.
 
     Esta función es un reemplazo directo para `json.load()`.
+
+    Args:
+        fp: Un objeto file-like que soporte .read().
+        auto_flows: Si es True (default), usa los flujos estándar de reparación.
+        flow: Una instancia de Flow personalizada.
+
+    Returns:
+        El objeto Python resultante.
     """
     text = fp.read()
     return loads(text, auto_flows=auto_flows, flow=flow)
