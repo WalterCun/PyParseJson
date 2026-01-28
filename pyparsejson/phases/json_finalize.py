@@ -4,30 +4,38 @@ from pyparsejson.core.token import TokenType
 
 class JSONFinalize:
     """
-    Convierte la lista de tokens reparada en un string JSON estricto.
+    Convierte la lista de tokens reparada en un string JSON sintácticamente estricto.
+    Esta es la última fase antes de intentar el parseo final con `json.loads`.
     """
 
     @staticmethod
     def process(context: Context) -> str:
+        """
+        Procesa la lista de tokens y devuelve un string JSON.
+        """
         parts = []
         for token in context.tokens:
             if token.type == TokenType.STRING:
-                # Asegurar que tenga comillas dobles
+                # Asegurar que los strings tengan comillas dobles y escapar las internas
                 val = token.value
                 if val.startswith("'") and val.endswith("'"):
+                    # Convertir comillas simples a dobles
                     val = '"' + val[1:-1].replace('"', '\\"') + '"'
                 elif not val.startswith('"'):
+                    # Añadir comillas a palabras que deberían ser strings
                     val = f'"{val}"'
                 parts.append(val)
             elif token.type == TokenType.BOOLEAN:
-                parts.append(token.value.lower())  # true/false
+                # Estandarizar a minúsculas (true/false)
+                parts.append(token.value.lower())
             elif token.type == TokenType.NULL:
+                # Estandarizar a "null"
                 parts.append("null")
             elif token.type == TokenType.DATE:
-                # Fechas: Se convierten a string JSON
-                val = token.value
-                parts.append(f'"{val}"')
+                # Las fechas se convierten a strings JSON
+                parts.append(f'"{token.value}"')
             else:
+                # El resto de tokens (números, llaves, comas, etc.) se mantienen igual
                 parts.append(token.value)
 
         return "".join(parts)
