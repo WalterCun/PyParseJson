@@ -1,74 +1,62 @@
 import json
-from typing import List, Optional
+from typing import List, Optional, Any
 
 from pyparsejson.core.context import Context
 from pyparsejson.core.engine import RuleEngine
 from pyparsejson.core.flow import Flow
-
-from pyparsejson.flows.presets import StandardJSONRepairFlow
+from pyparsejson.core.quality import RepairQualityEvaluator
+from pyparsejson.core.token import TokenType, Token
 from pyparsejson.flows.bootstrap import BootstrapRepairFlow
-
+from pyparsejson.flows.presets import StandardJSONRepairFlow
+from pyparsejson.phases.json_finalize import JSONFinalize
 from pyparsejson.phases.pre_normalize import PreNormalizeText
 from pyparsejson.phases.tokenize import TolerantTokenizer
-from pyparsejson.phases.json_finalize import JSONFinalize
-
 from pyparsejson.report.repair_report import RepairReport, RepairStatus
-from pyparsejson.core.quality import RepairQualityEvaluator
-from pyparsejson.core.token import TokenType
 
 
 class Repair:
     """
     Orquestador principal del proceso de reparación de JSON.
+    Coordina las fases de normalización, tokenización, aplicación de reglas y finalización.
     """
 
+    # -------------------------------- #
+    #            CONSTRUCTOR           #
+    # -------------------------------- #
+
     def __init__(self, auto_flows: bool = True, dry_run: bool = False):
+        """
+        Inicializa el motor de reparación.
+
+        Args:
+            auto_flows: Si es True, carga los flujos de reparación estándar.
+            dry_run: Si es True, ejecuta en modo auditoría sin aplicar cambios finales.
+        """
         self.engine = RuleEngine()
         self.pre_normalize = PreNormalizeText()
         self.tokenizer = TolerantTokenizer()
         self.finalizer = JSONFinalize()
         self.quality_evaluator = RepairQualityEvaluator()
 
-        # Configuración por defecto
         self.dry_run = dry_run
 
-        # Flujo de arranque (SIEMPRE se ejecuta primero)
+        # Flujo de arranque (SIEMPRE se ejecuta primero para garantizar estructura básica)
         self.bootstrap_flow = BootstrapRepairFlow(self.engine)
 
         self.user_flows: List[Flow] = []
         if auto_flows:
             self.add_flow(StandardJSONRepairFlow(self.engine))
 
-    def add_flow(self, flow: Flow):
-        if not hasattr(flow, "engine") or flow.engine is None:
-            flow.engine = self.engine
-        self.user_flows.append(flow)
-
-    def parse(self, text: str, dry_run: Optional[bool] = None) -> RepairReport:
-        """
-        Ejecuta el proceso de reparación.
-
-        Args:
-            text: El texto a reparar.
-            dry_run (optional):
-                - Si es True: Ejecuta en modo auditoría (sin afectar nada externamente).
-                - Si es False: Ejecuta normal.
-                - Si es None (Default): Usa la configuración definida en el constructor.
-        """
-        # Lógica de prioridad: El argumento del método sobrescribe al del constructor
-        effective_dry_run = self.dry_run if dry_run is None else dry_run
-
-        return self._run(text, dry_run=effective_dry_run)
+    # -------------------------------- #
+    #        METODOS PRIVADOS          #
+    # -------------------------------- #
 
     def _run(self, text: str, dry_run: bool = False) -> RepairReport:
-        """
-        Método interno compartido por parse() (usando configuración de instancia o override).
-        """
-        # 1. Pre-normalización y tokenización
+        """Lógica interna de ejecución del pipeline."""
+        # 1. Pre-normalización
         clean_text = self.pre_normalize.process(text)
-        context = Context(clean_text)
 
-        # Si el texto está completamente vacío después de limpiar
+        # Caso borde: Texto vacío
         if not clean_text:
             return RepairReport(
                 success=True,
@@ -77,79 +65,173 @@ class Repair:
                 python_object={}
             )
 
+        # Inicialización del contexto
+        context = Context(clean_text)
         context.tokens = self.tokenizer.tokenize(clean_text)
-
-        # Activar modo Dry Run basado en la decisión tomada en parse()
         context.dry_run = dry_run
         context.report.was_dry_run = dry_run
 
-        success = False
-        python_obj = None
-
-        # 2. Repair loop iterativo
-        while context.current_iteration < context.max_iterations:
-            context.current_iteration += 1
-            any_changed_in_iteration = False
-
-            # 2.1 Bootstrap flow (siempre primero)
-            bootstrap_changed = self.bootstrap_flow.execute(context)
-            any_changed_in_iteration |= bootstrap_changed
-
-            # 2.2 User / standard flows
-            for flow in self.user_flows:
-                flow_changed = flow.execute(context)
-                any_changed_in_iteration |= flow_changed
-
-            # 2.3 Si no hubo cambios → estado estable
-            if not any_changed_in_iteration:
-                break
+        # 2. Bucle de reparación iterativo
+        self._execute_repair_loop(context)
 
         # 3. Finalización y parseo JSON real
         final_json = self.finalizer.process(context)
+        success, python_obj = self._attempt_parse(final_json, context)
 
+        # 4. Fallback de emergencia para basura no estructurada
+        if not success:
+            success, python_obj, final_json = self._apply_fallback_if_needed(context, success, python_obj,
+                                                                             final_json)
+
+        # 5. Evaluación de calidad y construcción del reporte
+        self._finalize_report(context, success, python_obj, final_json)
+
+        return context.report
+
+    def _execute_repair_loop(self, context: Context):
+        """Ejecuta los flujos de reparación hasta que no haya cambios o se alcance el límite."""
+        while context.current_iteration < context.max_iterations:
+            context.current_iteration += 1
+            any_changed = False
+
+            # Bootstrap flow (siempre primero)
+            if self.bootstrap_flow.execute(context):
+                any_changed = True
+
+            # User / standard flows
+            for flow in self.user_flows:
+                if flow.execute(context):
+                    any_changed = True
+
+            # Si no hubo cambios en esta iteración, el sistema es estable
+            if not any_changed:
+                break
+
+    @staticmethod
+    def _attempt_parse(json_text: str, context: Context) -> tuple[bool, Any]:
+        """Intenta parsear el JSON resultante con la librería estándar."""
         try:
-            python_obj = json.loads(final_json)
-            success = True
+            obj = json.loads(json_text)
+            return True, obj
         except json.JSONDecodeError as e:
             context.report.errors.append(str(e))
+            return False, None
 
-        # --- NUEVO: FALLBACK A {} ---
-        # Si falló el parseo estricto, verificamos si es "basura pura" (no raíz { o [).
-        # Si es basura, devolvemos un objeto vacío para no romper aplicaciones que esperan un dict.
-        if not success:
-            if not context.tokens or context.tokens[0].type not in (TokenType.LBRACE, TokenType.LBRACKET):
-                final_json = "{}"
-                python_obj = {}
-                success = True
-                # Marcamos que fue un parche (simulación de éxito)
-                context.report.detected_issues.append("Devuelve {} por falta de estructura raíz válida.")
-        # ------------------------------
+    def _apply_fallback_if_needed(self, context: Context, success: bool, python_obj: Any, final_json: str):
+        """
+        Maneja inputs sin estructura JSON raíz detectable.
+        - Si hay tokens pero sin estructura raíz: intenta extraer objetos/array anidados
+        - Si no hay tokens ni estructura detectable: NO marca como éxito (evita falsos positivos)
+        """
+        # Caso 1: Ya tenemos éxito → no intervenir
+        if success:
+            return success, python_obj, final_json
 
-        # 4. Evaluación de calidad
+        # Caso 2: Tokens existen pero sin estructura raíz → intentar extraer objetos/array anidados
+        if context.tokens and context.tokens[0].type not in (TokenType.LBRACE, TokenType.LBRACKET):
+            extracted = self._extract_balanced_structure(context.tokens)
+            if extracted:
+                # EXTRAER la estructura y CONTINUAR el ciclo de reparación (no detenerse)
+                context.tokens = extracted
+                context.mark_changed()
+                context.report.detected_issues.append(
+                    f"Estructura raíz extraída desde texto mixto (longitud: {len(extracted)} tokens)"
+                )
+                # ⚠️ IMPORTANTE: Devolver False para que el motor continúe reparando
+                return False, None, ""  # El "" fuerza re-parseo en siguiente iteración
+
+            # Si no hay estructura anidada detectable → texto plano sin JSON
+            context.report.detected_issues.append(
+                "⚠️ ADVERTENCIA: Texto sin estructura JSON detectable. No se puede reparar."
+            )
+            return False, None, "{}"  # Mantener estado de fallo
+
+        # Caso 3: Tokens con estructura raíz pero parseo fallido → ya se maneja en _attempt_parse
+        return success, python_obj, final_json
+
+    @staticmethod
+    def _extract_balanced_structure(tokens: List[Token]) -> Optional[List[Token]]:
+        """
+        Extrae la PRIMERA estructura balanceada (objeto/array) encontrada en la lista de tokens.
+        Ej: "hola {a:1, b:2} mundo" → extrae "{a:1, b:2}"
+        """
+        if not tokens:
+            return None
+
+        # Buscar primera apertura de estructura
+        start_idx = -1
+        start_type = None
+        for i, token in enumerate(tokens):
+            if token.type in (TokenType.LBRACE, TokenType.LBRACKET):
+                start_idx = i
+                start_type = token.type
+                break
+
+        if start_idx == -1:
+            return None  # No hay estructura anidada
+
+        # Balancear hasta encontrar el cierre correspondiente
+        close_type = TokenType.RBRACE if start_type == TokenType.LBRACE else TokenType.RBRACKET
+        depth = 0
+        end_idx = -1
+
+        for i in range(start_idx, len(tokens)):
+            t = tokens[i]
+            if t.type == start_type:
+                depth += 1
+            elif t.type == close_type:
+                depth -= 1
+                if depth == 0:
+                    end_idx = i
+                    break
+
+        if end_idx != -1:
+            return tokens[start_idx:end_idx + 1]
+        return None
+
+    def _finalize_report(self, context: Context, success: bool, python_obj: Any, final_json: str):
+        """Calcula métricas de calidad y rellena el reporte final."""
         quality_score, issues = self.quality_evaluator.evaluate(context)
 
-        # 5. Construcción del reporte final
         context.report.success = success
         context.report.quality_score = quality_score
-        context.report.detected_issues = issues
+        context.report.detected_issues.extend(issues)
         context.report.json_text = final_json
         context.report.python_object = python_obj
         context.report.iterations = context.current_iteration
 
-        # 6. Estado final
+        # Determinar estado final detallado
         if success:
-            if quality_score < 1.0:
+            if quality_score < 1.0 or (python_obj == {} and "Devuelve {}" in str(context.report.detected_issues)):
                 context.report.status = RepairStatus.SUCCESS_WITH_WARNINGS
             else:
                 context.report.status = RepairStatus.SUCCESS_STRICT_JSON
         else:
-            # Si forzamos el parche a {}, se marca como éxito, pero es bueno saberlo
-            if python_obj == {} and context.report.detected_issues:
-                # Es técnicamente un parche de éxito
-                context.report.status = RepairStatus.SUCCESS_WITH_WARNINGS
-            elif context.report.applied_rules:
+            if context.report.applied_rules:
                 context.report.status = RepairStatus.PARTIAL_REPAIR
             else:
                 context.report.status = RepairStatus.FAILED_UNRECOVERABLE
 
-        return context.report
+    # -------------------------------- #
+    #         METODOS PUBLICOS         #
+    # -------------------------------- #
+
+    def add_flow(self, flow: Flow):
+        """Agrega un flujo de reparación personalizado al pipeline."""
+        if not hasattr(flow, "engine") or flow.engine is None:
+            flow.engine = self.engine
+        self.user_flows.append(flow)
+
+    def parse(self, text: str, dry_run: Optional[bool] = None) -> RepairReport:
+        """
+        Ejecuta el proceso de reparación sobre un texto.
+
+        Args:
+            text: El texto a reparar.
+            dry_run: Sobrescribe la configuración de dry_run de la instancia si no es None.
+
+        Returns:
+            Un objeto RepairReport con los resultados.
+        """
+        effective_dry_run = self.dry_run if dry_run is None else dry_run
+        return self._run(text, dry_run=effective_dry_run)
