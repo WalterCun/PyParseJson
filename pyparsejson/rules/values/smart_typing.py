@@ -5,7 +5,7 @@ from pyparsejson.rules.base import Rule
 from pyparsejson.rules.registry import RuleRegistry
 
 
-@RuleRegistry.register(tags=["values", "smart"], priority=55)
+@RuleRegistry.register(tags=["values", "smart"], priority=40)
 class SmartTypingRule(Rule):
     """
     Utiliza el contexto del nombre de la clave para inferir el tipo correcto del valor.

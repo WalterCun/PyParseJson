@@ -1,5 +1,5 @@
 from pyparsejson.core.context import Context
-from pyparsejson.core.token import TokenType
+from pyparsejson.core.token import TokenType, Token
 from pyparsejson.rules.base import Rule
 from pyparsejson.rules.registry import RuleRegistry
 
@@ -41,36 +41,56 @@ class RemoveTrailingCommasRule(Rule):
 @RuleRegistry.register(tags=["structure", "cleanup"], priority=0)
 class StripPrefixGarbageRule(Rule):
     """
-    Elimina prefijos de texto (basura) antes de la estructura JSON real.
+    Elimina texto no-JSON del inicio.
 
-    Lógica corregida:
-    - Si empieza con { o [, no hacer nada.
-    - Si empieza con una palabra clave (ej. "user:"), NO ES BASURA.
-    - Solo cortar si el inicio NO tiene estructura y luego sí la hay.
+    ESTRATEGIA:
+    1. Detectar palabras clave SQL/lenguajes de programación
+    2. Si el texto empieza con ellas, marcar como NO-JSON
+    3. Buscar primera estructura válida ({ o [ o clave:)
+    4. Cortar todo lo anterior
     """
+
+    # Lista negra expandida
+    NON_JSON_STARTERS = {
+        # SQL
+        'insert', 'select', 'update', 'delete', 'create', 'alter', 'drop',
+        'grant', 'revoke', 'truncate', 'merge', 'call', 'exec',
+
+        # Programación
+        'function', 'def', 'class', 'import', 'from', 'return', 'if',
+        'else', 'for', 'while', 'do', 'switch', 'case', 'try', 'catch',
+
+        # Lenguaje natural (español/inglés)
+        'hola', 'hello', 'hey', 'hi', 'que', 'what', 'esto', 'this',
+        'el', 'la', 'the', 'un', 'una', 'a', 'an', 'es', 'is',
+
+        # Comandos
+        'echo', 'print', 'console', 'log', 'debug'
+    }
 
     def applies(self, context: Context) -> bool:
         tokens = context.tokens
         if len(tokens) < 2:
             return False
 
-        # Si ya empieza con estructura válida, no hacer nada
+        # Ya empieza bien → no aplicar
         if tokens[0].type in (TokenType.LBRACE, TokenType.LBRACKET):
             return False
 
-        # MIRAR SI EL INICIO ES UNA CLAVE VÁLIDA (palabra + : o =)
-        # Si lo es, no es basura, es el inicio del objeto JSON.
+        # Primera palabra es clave válida → no aplicar
         if tokens[0].type == TokenType.BARE_WORD:
             if len(tokens) > 1 and tokens[1].type in (TokenType.COLON, TokenType.ASSIGN):
-                return False  # No aplicar, el inicio es válido (ej: user: admin)
+                return False
 
-        # Si llegamos aquí, probablemente hay basura al inicio.
-        # Buscamos estructura posterior para cortar prefijo.
-        for i in range(1, len(tokens)):
-            if tokens[i].type in (TokenType.LBRACE, TokenType.LBRACKET):
+        # Primera palabra está en lista negra → aplicar
+        if tokens[0].type == TokenType.BARE_WORD:
+            if tokens[0].value.lower() in self.NON_JSON_STARTERS:
                 return True
 
-                # Buscar clave: valor
+        # Buscar si hay estructura válida más adelante
+        for i in range(1, min(len(tokens), 10)):  # Solo buscar en primeros 10 tokens
+            if tokens[i].type in (TokenType.LBRACE, TokenType.LBRACKET):
+                return True
             if tokens[i].type == TokenType.BARE_WORD:
                 if i + 1 < len(tokens) and tokens[i + 1].type == TokenType.COLON:
                     return True
@@ -79,24 +99,108 @@ class StripPrefixGarbageRule(Rule):
 
     def apply(self, context: Context):
         tokens = context.tokens
-        new_tokens = []
-        start_index = 0
 
-        # Determinar desde qué índice empieza realmente el JSON
-        for i in range(len(tokens)):
-            # Opción A: Inicio de objeto/array
+        # ESTRATEGIA 1: Si empieza con palabra de lista negra, eliminar TODO
+        if tokens[0].type == TokenType.BARE_WORD and tokens[0].value.lower() in self.NON_JSON_STARTERS:
+            # Buscar si hay ALGO salvable después
+            found_structure = False
+            start_idx = 0
+
+            for i in range(1, len(tokens)):
+                if tokens[i].type in (TokenType.LBRACE, TokenType.LBRACKET):
+                    start_idx = i
+                    found_structure = True
+                    break
+                if tokens[i].type == TokenType.BARE_WORD:
+                    if i + 1 < len(tokens) and tokens[i + 1].type == TokenType.COLON:
+                        start_idx = i
+                        found_structure = True
+                        break
+
+            if found_structure:
+                context.tokens = tokens[start_idx:]
+            else:
+                # No hay nada salvable → vaciar
+                context.tokens = []
+
+            context.mark_changed()
+            context.record_rule(self.name)
+            return
+
+        # ESTRATEGIA 2: Basura antes de estructura válida
+        for i in range(1, len(tokens)):
             if tokens[i].type in (TokenType.LBRACE, TokenType.LBRACKET):
-                start_index = i
-                break
+                context.tokens = tokens[i:]
+                context.mark_changed()
+                context.record_rule(self.name)
+                return
 
-            # Opción B: Inicio de par clave:valor (si no hay llaves)
             if tokens[i].type == TokenType.BARE_WORD:
                 if i + 1 < len(tokens) and tokens[i + 1].type == TokenType.COLON:
-                    start_index = i
-                    break
+                    context.tokens = tokens[i:]
+                    context.mark_changed()
+                    context.record_rule(self.name)
+                    return
 
-        # Slice de la lista de tokens
-        if start_index > 0:
-            context.tokens = tokens[start_index:]
+
+@RuleRegistry.register(tags=["structure", "cleanup"], priority=5)
+class StripCommentsRule(Rule):
+    """
+    Elimina comentarios C-style (// hasta fin de línea) y bloque (/* ... */).
+    Ej: "user: admin // comment" → "user: admin"
+    """
+
+    def applies(self, context: Context) -> bool:
+        return any(
+            t.type == TokenType.BARE_WORD and t.value in ("//", "/*", "*/")
+            for t in context.tokens
+        ) or any(
+            "//" in t.value or "/*" in t.value or "*/" in t.value
+            for t in context.tokens
+        )
+
+    def apply(self, context: Context):
+        new_tokens = []
+        skip_until_newline = False
+        skip_block = False
+
+        for token in context.tokens:
+            # Manejar comentarios de línea //
+            if "//" in token.value:
+                # Dividir token si contiene código + comentario
+                parts = token.value.split("//", 1)
+                if parts[0].strip():
+                    new_tokens.append(Token(
+                        TokenType.BARE_WORD if token.type == TokenType.BARE_WORD else token.type,
+                        parts[0].strip(),
+                        parts[0].strip(),
+                        token.position
+                    ))
+                skip_until_newline = True
+                continue
+
+            # Manejar inicio de bloque /*
+            if "/*" in token.value:
+                skip_block = True
+                continue
+
+            # Manejar fin de bloque */
+            if "*/" in token.value:
+                skip_block = False
+                continue
+
+            # Saltar tokens dentro de comentario
+            if skip_until_newline:
+                if '\n' in token.value or token.value.strip() == "":
+                    skip_until_newline = False
+                continue
+
+            if skip_block:
+                continue
+
+            new_tokens.append(token)
+
+        if len(new_tokens) != len(context.tokens):
+            context.tokens = new_tokens
             context.mark_changed()
             context.record_rule(self.name)
