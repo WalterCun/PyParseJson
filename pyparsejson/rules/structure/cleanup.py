@@ -151,6 +151,13 @@ class StripCommentsRule(Rule):
     """
 
     def applies(self, context: Context) -> bool:
+        tokens = context.tokens
+
+        for i in range(len(tokens) - 1):
+            if (tokens[i].type == TokenType.UNKNOWN and tokens[i].value == "/" and
+                    tokens[i + 1].type == TokenType.UNKNOWN and tokens[i + 1].value == "/"):
+                return True
+
         return any(
             t.type == TokenType.BARE_WORD and t.value in ("//", "/*", "*/")
             for t in context.tokens
@@ -163,11 +170,22 @@ class StripCommentsRule(Rule):
         new_tokens = []
         skip_until_newline = False
         skip_block = False
+        i = 0
 
-        for token in context.tokens:
-            # Manejar comentarios de línea //
+        while i < len(context.tokens):
+            token = context.tokens[i]
+
+            # NUEVO: Detectar // como dos tokens UNKNOWN consecutivos
+            if (i + 1 < len(context.tokens) and
+                    token.type == TokenType.UNKNOWN and token.value == "/" and
+                    context.tokens[i + 1].type == TokenType.UNKNOWN and context.tokens[i + 1].value == "/"):
+                # Encontrado //, saltar hasta fin de línea
+                i += 2  # Saltar ambos "/"
+                skip_until_newline = True
+                continue
+
+            # Manejar comentarios de línea // (cuando están en un solo token)
             if "//" in token.value:
-                # Dividir token si contiene código + comentario
                 parts = token.value.split("//", 1)
                 if parts[0].strip():
                     new_tokens.append(Token(
@@ -177,28 +195,36 @@ class StripCommentsRule(Rule):
                         token.position
                     ))
                 skip_until_newline = True
+                i += 1
                 continue
 
             # Manejar inicio de bloque /*
             if "/*" in token.value:
                 skip_block = True
+                i += 1
                 continue
 
             # Manejar fin de bloque */
             if "*/" in token.value:
                 skip_block = False
+                i += 1
                 continue
 
-            # Saltar tokens dentro de comentario
+            # Saltar tokens dentro de comentario de línea
             if skip_until_newline:
                 if '\n' in token.value or token.value.strip() == "":
                     skip_until_newline = False
+                i += 1
                 continue
 
+            # Saltar tokens dentro de bloque
             if skip_block:
+                i += 1
                 continue
 
+            # Token normal, agregar
             new_tokens.append(token)
+            i += 1
 
         if len(new_tokens) != len(context.tokens):
             context.tokens = new_tokens

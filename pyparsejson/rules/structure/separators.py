@@ -53,10 +53,17 @@ class AddMissingCommasRule(Rule):
                     next_next and next_next.type == TokenType.COLON
             )
 
+            is_number_to_word  = (
+                    current.type == TokenType.NUMBER and
+                    next_token.type == TokenType.BARE_WORD and
+                    next_next and next_next.type == TokenType.COLON
+            )
+
             # ¿Ya hay coma?
             has_comma = next_token.type == TokenType.COMMA
 
-            if is_value_end and is_next_key and not has_comma:
+            if (is_value_end and is_next_key and not has_comma) or \
+                    (is_number_to_word and not has_comma):  # ← AÑADIR ESTO
                 return True
 
         return False
