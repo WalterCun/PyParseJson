@@ -24,7 +24,7 @@ class JSONFinalize:
         if not context.tokens:
             print("[FINALIZE] ⚠️ WARNING: No hay tokens para procesar")
             return "{}"
-        print(f"[FINALIZE] Procesando {len(context.tokens)} tokens")
+        # print(f"[FINALIZE] Procesando {len(context.tokens)} tokens")
 
         parts = []
         for i, token in enumerate(context.tokens):

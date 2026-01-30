@@ -66,3 +66,52 @@ class QuoteBareWordsRule(Rule):
         if changed:
             context.mark_changed()
             context.record_rule(self.name)
+
+
+@RuleRegistry.register(tags=["values", "normalization"], priority=65)
+class MergeAdjacentStringsRule(Rule):
+    """Une strings consecutivos en un solo valor"""
+
+    def applies(self, context: Context) -> bool:
+        tokens = context.tokens
+        for i in range(len(tokens) - 1):
+            if (tokens[i].type == TokenType.STRING and
+                    tokens[i + 1].type == TokenType.STRING):
+                return True
+        return False
+
+    def apply(self, context: Context):
+        new_tokens = []
+        i = 0
+
+        while i < len(context.tokens):
+            current = context.tokens[i]
+
+            # Si es STRING y el siguiente también
+            if (i + 1 < len(context.tokens) and
+                    current.type == TokenType.STRING and
+                    context.tokens[i + 1].type == TokenType.STRING):
+
+                # Unir todos los strings consecutivos
+                merged_value = current.value.strip('"')
+                i += 1
+
+                while (i < len(context.tokens) and
+                       context.tokens[i].type == TokenType.STRING):
+                    merged_value += " " + context.tokens[i].value.strip('"')
+                    i += 1
+
+                # Crear token unificado
+                new_tokens.append(Token(
+                    type=TokenType.STRING,
+                    value=f'"{merged_value}"',
+                    raw_value=f'"{merged_value}"',
+                    position=current.position
+                ))
+            else:
+                new_tokens.append(current)
+                i += 1
+
+        context.tokens = new_tokens
+        context.mark_changed()
+        context.record_rule(self.name)

@@ -16,18 +16,21 @@ class TolerantTokenizer:
 
         # Fechas y formatos especiales (antes de números para evitar 2026-01-01 → 2026 - 01 - 01)
         (TokenType.STRING, r'\d{4}-\d{2}-\d{2}'),  # Fechas YYYY-MM-DD
-        (TokenType.STRING, r'\d{3}-\d{3}-\d{4}'),  # Teléfonos NNN-NNN-NNNN
-        (TokenType.STRING, r'\d{5}(-\d{4})?'),  # Códigos postales
 
-        # Strings estándar
+        (TokenType.STRING, r'\d{3}-\d{4}'),  # Formato NNN-NNNN (555-0199)
+        (TokenType.STRING, r'\d{3}-\d{3}-\d{4}'),  # Formato NNN-NNN-NNNN completo
+
         (TokenType.STRING, r'"(?:\\.|[^"\\])*"'),  # Comillas dobles
         (TokenType.STRING, r"'(?:\\.|[^'\\])*'"),  # Comillas simples
 
         # Números (antes de BARE_WORD para evitar fragmentación)
-        (TokenType.NUMBER, r'-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?'),
+        # (TokenType.NUMBER, r'-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?'),
+        (TokenType.NUMBER, r'-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?'),
+
+        # (TokenType.STRING, r'\d{5}(-\d{4})?'),  # Códigos postales
 
         # Booleanos y null
-        (TokenType.BOOLEAN, r'\b(true|false|si|no|yes|on|off)\b'),
+        (TokenType.BOOLEAN, r'\b(true|false|si|no|yes|on|off|1|0)\b'),
         (TokenType.NULL, r'\b(null|none|nil)\b'),
 
         # Estructuras
@@ -65,7 +68,6 @@ class TolerantTokenizer:
         pos = 0
         line = 1
         column = 1
-
         while pos < len(text):
             # Saltar espacios en blanco y actualizar posición
             match_space = re.match(r'\s+', text[pos:])
@@ -84,9 +86,10 @@ class TolerantTokenizer:
             match_found = False
             for token_type, regex in self.compiled_patterns:
                 match = regex.match(text, pos)
+                print(match)
                 if match:
                     value = match.group(0)
-
+                    # print(match)
                     # Evitar que BARE_WORD capture un punto solitario
                     if token_type == TokenType.BARE_WORD and value == ".":
                         continue

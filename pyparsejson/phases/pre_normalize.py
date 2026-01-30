@@ -4,7 +4,8 @@ class PreNormalizeText:
     Se encarga de estandarizar saltos de línea y eliminar espacios superfluos en los extremos.
     """
     
-    def process(self, text: str) -> str:
+    @staticmethod
+    def process(text: str) -> str:
         """
         Normaliza el texto de entrada.
         """

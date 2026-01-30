@@ -73,7 +73,7 @@ class Repair:
         if not clean_text:
             return RepairReport(
                 success=True,
-                status=RepairStatus.SUCCESS_STRICT_JSON,
+                status=RepairStatus.SUCCESS_WITH_WARNINGS,
                 json_text="{}",
                 python_object={}
             )
