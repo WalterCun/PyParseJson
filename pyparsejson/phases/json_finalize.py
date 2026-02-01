@@ -1,3 +1,5 @@
+# Size: 2.94 KB, Lines: 79
+
 # Path: pyparsejson\phases\json_finalize.py
 """
 ARCHIVO CORREGIDO: pyparsejson/phases/json_finalize.py
@@ -30,7 +32,6 @@ class JSONFinalize:
         if not context.tokens:
             self.logger.warning("⚠️ No hay tokens para procesar, devolviendo objeto vacío")
             return "{}"
-        # print(f"[FINALIZE] Procesando {len(context.tokens)} tokens")
 
         parts = []
         for i, token in enumerate(context.tokens):
@@ -67,7 +68,7 @@ class JSONFinalize:
                 # Las fechas siempre van como strings
                 parts.append(f'"{token.value}"')
 
-            elif token.type == TokenType.NUMBER:
+            elif token.type == TokenType.NUMBER:  # CORRECCIÓN: NUMBER -> NUMBER
                 # Números van sin comillas
                 parts.append(token.value)
 

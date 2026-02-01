@@ -1,3 +1,4 @@
+# Path: pyparsejson\rules\structure\cleanup.py
 from pyparsejson.core.context import Context
 from pyparsejson.core.token import TokenType, Token
 from pyparsejson.rules.base import Rule
@@ -83,9 +84,8 @@ class StripPrefixGarbageRule(Rule):
                 return False
 
         # Primera palabra está en lista negra → aplicar
-        if tokens[0].type == TokenType.BARE_WORD:
-            if tokens[0].value.lower() in self.NON_JSON_STARTERS:
-                return True
+        if tokens[0].type == TokenType.BARE_WORD and tokens[0].value.lower() in self.NON_JSON_STARTERS:
+            return True
 
         # Buscar si hay estructura válida más adelante
         for i in range(1, min(len(tokens), 10)):  # Solo buscar en primeros 10 tokens
@@ -230,3 +230,4 @@ class StripCommentsRule(Rule):
             context.tokens = new_tokens
             context.mark_changed()
             context.record_rule(self.name)
+

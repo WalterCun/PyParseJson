@@ -1,3 +1,4 @@
+# Path: pyparsejson\__init__.py
 """
 PyParseJson: Una librería robusta para reparar y parsear JSON mal formado.
 
@@ -5,7 +6,6 @@ Este módulo expone las funciones principales `load` y `loads`, diseñadas para 
 reemplazos directos (drop-in replacements) de las funciones estándar de `json`,
 pero con capacidades avanzadas de recuperación de errores.
 """
-
 import json
 from typing import TextIO, Any, Optional
 
@@ -13,11 +13,14 @@ from pyparsejson.core.repair import Repair
 from pyparsejson.core.flow import Flow
 from pyparsejson.report.repair_report import RepairStatus
 
-__version__ = "0.2.0"
-__all__ = ["load", "loads", "Repair", "Flow", "RepairStatus", "JSONDecodeError"]
+# Nota: Se eliminó la importación directa de JSONDecodeError para evitar conflictos con el manejo interno de excepciones.
+# La librería usa `raise json.JSONDecodeError` explícitamente cuando falla en modo strict.
+
+__version__ = "0.2.1"
+__all__ = ["load", "loads", "Repair", "Flow", "RepairStatus"]
 
 
-def loads(text: str, *, auto_flows: bool = True, flow: Optional[Flow] = None) -> Any:
+def loads(text: str, *, auto_flows: bool = True, flow: Optional[Flow] = None, mode: str = "lax") -> Any:
     """
     Deserializa `text` (un string que contiene un documento JSON posiblemente roto)
     a un objeto Python.
@@ -27,15 +30,20 @@ def loads(text: str, *, auto_flows: bool = True, flow: Optional[Flow] = None) ->
 
     Args:
         text: El string con el JSON (o "Frankenstein JSON") a parsear.
-        auto_flows: Si es True (default), usa los flujos estándar de reparación.
+        auto_flows: Si es True (default), usa los flujos de reparación estándar.
         flow: Una instancia de Flow personalizada para sobrescribir el comportamiento.
+        mode: "lax" (default) devuelve {} si falla la reparación.
+              "strict" lanza json.JSONDecodeError si el resultado no es válido.
 
     Returns:
         El objeto Python resultante (dict, list, etc).
 
     Raises:
-        json.JSONDecodeError: Si incluso después de intentar repararlo, el texto no es válido.
+        json.JSONDecodeError: Si mode="strict" y no se pudo reparar el texto.
     """
+    if mode not in ("lax", "strict"):
+        raise ValueError(f"Invalid mode '{mode}'. Use 'lax' or 'strict'.")
+
     if not isinstance(text, str):
         # Intento de compatibilidad con json.loads que también acepta bytes
         try:
@@ -45,7 +53,7 @@ def loads(text: str, *, auto_flows: bool = True, flow: Optional[Flow] = None) ->
             pass
 
     # Inicializamos el motor de reparación
-    pipeline = Repair(auto_flows=auto_flows)
+    pipeline = Repair(auto_flows=auto_flows, mode=mode)
 
     # Si el usuario proveyó un flujo personalizado, lo añadimos
     if flow:
@@ -67,7 +75,7 @@ def loads(text: str, *, auto_flows: bool = True, flow: Optional[Flow] = None) ->
         )
 
 
-def load(fp: TextIO, *, auto_flows: bool = True, flow: Optional[Flow] = None) -> Any:
+def load(fp: TextIO, *, auto_flows: bool = True, flow: Optional[Flow] = None, mode: str = "lax") -> Any:
     """
     Deserializa `fp` (un archivo .read() soportado) a un objeto Python.
 
@@ -75,14 +83,16 @@ def load(fp: TextIO, *, auto_flows: bool = True, flow: Optional[Flow] = None) ->
 
     Args:
         fp: Un objeto file-like que soporte .read().
-        auto_flows: Si es True (default), usa los flujos estándar de reparación.
+        auto_flows: Si es True (default), usa los flujos de reparación estándar.
         flow: Una instancia de Flow personalizada.
+        mode: "lax" (default) devuelve {} si falla.
+              "strict" lanza excepción si falla.
 
     Returns:
         El objeto Python resultante.
     """
     text = fp.read()
-    return loads(text, auto_flows=auto_flows, flow=flow)
+    return loads(text, auto_flows=auto_flows, flow=flow, mode=mode)
 
 
 def __getattr__(name):

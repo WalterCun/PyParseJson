@@ -1,3 +1,5 @@
+# Size: 14.44 KB, Lines: 311
+
 # Path: pyparsejson\core\repair.py
 """
 ARCHIVO CORREGIDO: pyparsejson/core/repair.py
@@ -7,6 +9,8 @@ CAMBIOS PRINCIPALES:
 2. Simplificado _run() - confía en las reglas de wrapping
 3. Añadido logging detallado para debugging
 4. Corregido _apply_fallback_if_needed()
+5. AÑADIDO SOPORTE PARA MODOS (Strict/Lax)
+6. AÑADIDO IMPRESIÓN DE EMERGENCIA: Imprime el JSON completo si falla el parseo, no solo el trunco.
 """
 import json
 import logging
@@ -32,7 +36,8 @@ class Repair:
     Coordina las fases de normalización, tokenización, aplicación de reglas y finalización.
     """
 
-    def __init__(self, auto_flows: bool = True, dry_run: bool = False, debug: bool = False, log_level: int = logging.WARNING):
+    def __init__(self, auto_flows: bool = True, dry_run: bool = False, debug: bool = False,
+                 log_level: int = logging.WARNING, mode: str = "lax"):
         """
         Inicializa el motor de reparación.
 
@@ -40,6 +45,7 @@ class Repair:
             auto_flows: Si es True, carga los flujos de reparación estándar.
             dry_run: Si es True, ejecuta en modo auditoría sin aplicar cambios finales.
             debug: Si es True, imprime información de debugging.
+            mode: "lax" (default) devuelve {} si falla. "strict" lanza excepción.
         """
         self.engine = RuleEngine()
         self.pre_normalize = PreNormalizeText()
@@ -51,6 +57,7 @@ class Repair:
 
         self.dry_run = dry_run
         self.debug = debug
+        self.mode = mode
 
         # Flujo de arranque (SIEMPRE se ejecuta primero)
         self.bootstrap_flow = BootstrapRepairFlow(self.engine)
@@ -110,13 +117,15 @@ class Repair:
 
         # 3. Finalización y parseo JSON real
         final_json = self.finalizer.process(context)
-        self._debug_log(f"Finalized JSON: {final_json[:200]}...")
+
+        # DEBUG: Imprimir exactamente qué se va a intentar parsear
+        self._debug_log(f"Finalized JSON: {final_json}")
 
         success, python_obj = self._attempt_parse(final_json, context)
 
-        # 4. Fallback final
+        # 4. Fallback final (manejo de modos)
         if not success:
-            self._debug_log("Parse failed, applying fallback")
+            self._debug_log("Parse failed, applying fallback logic")
             success, python_obj, final_json = self._apply_fallback_if_needed(context, success, python_obj, final_json)
 
         # 5. Evaluación de calidad y construcción del reporte
@@ -155,28 +164,110 @@ class Repair:
             obj = json.loads(json_text)
             return True, obj
         except json.JSONDecodeError as e:
+            # IMPRESIÓN DE EMERGENCIA: Imprimir el JSON COMPLETO
+            # Esto nos dirá exactamente qué está llegando al parser y por qué falla.
+            # El error 'Expecting , delimiter' es muy común.
+            print(f"[FALLA] JSONDecodeError al intentar parsear: {repr(json_text)}")
             context.report.errors.append(str(e))
             return False, None
 
     def _apply_fallback_if_needed(self, context: Context, success: bool, python_obj: Any, final_json: str):
         """
-        Fallback final para casos donde el parsing falla.
-        En lugar de devolver JSON corrupto, devolvemos {} vacío con advertencia.
+        Manejo de errores finales basado en el modo de operación.
+
+        LAX MODE (Default): Devuelve {} para no romper la aplicación.
+        STRICT MODE: Lanza excepción para forzar el manejo del error.
         """
         if success:
             return success, python_obj, final_json
 
-        # Si el parsing falló después de todas las reparaciones, devolver objeto vacío
-        self._debug_log("All repair attempts failed, returning empty object")
+        # El parse falló (success=False). Analizar por qué.
+        self._debug_log(f"Parse failed. Input: '{final_json}'")
 
-        context.report.detected_issues.append(
-            "⚠️ No se pudo reparar el JSON - estructura irrecuperable"
-        )
+        # Chequeo de inconsistencia: El parseo falló pero el JSON parece estructurado.
+        # Esto suele pasar si el JSON está incompleto (ej: { "a": 1... )
+        # Si el JSON parece incompleto, consideramos que es un error fatal.
+        # Verificamos si es válido con un parser más estricto o regex simple.
+        is_structurally_incomplete = False
 
-        return True, {}, "{}"
+        # Comprobación simple de JSON incompleto usando regex (más rápido que json.loads)
+        # Busca patrones como "{" (no hay cierre) o }... (exceso de cierre)
+        import re
+        # Un JSON inválido común es que termina con "..."
+        if re.search(r'\{\s*$', final_json.strip()) or re.search(r'\}\s*\.\.\.', final_json):
+            is_structurally_incomplete = True
+
+        # Si parece incompleto, no intentar arreglar, solo retornar {}.
+        # Intentar arreglar un cierre faltante (ej: añadir '}')
+        if is_structurally_incomplete:
+            # Intentar arreglar añadiendo } al final
+            self._debug_log("Detected incomplete JSON, attempting to fix...")
+            try:
+                # Estrategia simple: Añadir '}' al final.
+                # Si sigue fallando, limpiar a '{}'.
+                try:
+                    # Intentar parsear el JSON limpio
+                    json.loads(final_json + "}")
+                    # Si llega aquí, es que el JSON principal era válido, solo le faltaba el cierre.
+                    final_json = final_json + "}"
+                    success = True
+                    python_obj = json.loads(final_json)
+                    self._debug_log(f"Fixed incomplete JSON: {final_json}")
+                except:
+                    # Si falla el parseo, limpiar a {}.
+                    final_json = "{}"
+                    python_obj = {}
+                    success = False
+            except Exception:
+                final_json = "{}"
+                python_obj = {}
+                success = False
+        else:
+            # No parece incompleto, quizás error de sintaxis grave.
+            # No podemos hacer mucho más sin arriesgar el JSON.
+            pass
+
+        # Lógica de modos
+        if self.mode == "strict":
+            # En modo estricto, fallar explícitamente es mejor que devolver datos vacíos o vacíos.
+            if not success:
+                self._debug_log("Strict mode enabled, raising exception")
+                error_msg = context.report.errors[-1] if context.report.errors else "Unknown unrecoverable error"
+                # Usar el JSON generado (que podría estar incompleto) para el mensaje de error
+                msg = f"PyParseJson (Strict Mode) failed to repair input: {error_msg}"
+                # Si el final_json es muy largo, truncarlo para el mensaje
+                doc_preview = final_json[:200] if len(final_json) > 200 else final_json
+
+                raise json.JSONDecodeError(msg=msg, doc=doc_preview, pos=0)
+
+        if not success:
+            # Modo Lax (Default): Comportamiento original
+            self._debug_log("Lax mode enabled, returning empty object")
+            context.report.detected_issues.append(
+                "⚠️ No se pudo reparar el JSON - estructura irrecuperable o incompleta"
+            )
+            success = True
+            python_obj = {}
+            final_json = "{}"
+
+        return success, python_obj, final_json
 
     def _finalize_report(self, context: Context, success: bool, python_obj: Any, final_json: str):
-        """Calcula métricas de calidad y rellena el reporte final."""
+        # CORRECCIÓN: Paréntesis de cierre movidos a nueva línea
+        if not success:
+            # Si la reparación falló y estamos en modo lax (por defecto), es probable que final_json esté incompleto (ej: `{"a": 1...`).
+            # Se fuerza un retorno seguro de "{}".
+            self._debug_log("Forzando {} en modo lax debido a error de parseo.")
+            python_obj = {}
+            final_json = "{}"
+            # Actualizar el reporte para reflejar este estado.
+            context.report.python_object = python_obj
+            context.report.json_text = final_json
+            context.report.success = True
+            context.report.status = RepairStatus.SUCCESS_WITH_WARNINGS
+            context.report.detected_issues.append("⚠️ Fallback: Forzado '{}' debido a JSON incompleto inválido.")
+            return
+
         quality_score, issues = self.quality_evaluator.evaluate(context)
 
         context.report.success = success
@@ -202,11 +293,13 @@ class Repair:
             else:
                 context.report.status = RepairStatus.FAILED_UNRECOVERABLE
 
+
     def add_flow(self, flow: Flow):
         """Agrega un flujo de reparación personalizado al pipeline."""
         if not hasattr(flow, "engine") or flow.engine is None:
             flow.engine = self.engine
         self.user_flows.append(flow)
+
 
     def parse(self, text: str, dry_run: Optional[bool] = None) -> RepairReport:
         """
@@ -218,6 +311,9 @@ class Repair:
 
         Returns:
             Un objeto RepairReport con los resultados.
+
+        Raises:
+            json.JSONDecodeError: Si mode="strict" y la reparación falla.
         """
         effective_dry_run = self.dry_run if dry_run is None else dry_run
         return self._run(text, dry_run=effective_dry_run)

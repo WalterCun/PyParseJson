@@ -1,227 +1,153 @@
+# Size: 18.26 KB, Lines: 241
+
+# Path: pyparsejson\rules\structure\wrappers.py
 from pyparsejson.core.context import Context
 from pyparsejson.core.token import TokenType, Token
 from pyparsejson.rules.base import Rule
 from pyparsejson.rules.registry import RuleRegistry
 
 
-@RuleRegistry.register(tags=["structure", "cleanup"], priority=0)  # Ejecuta ANTES que las reglas pre_repair
-class StripPrefixGarbageRule(Rule):
+# -----------------------------------------------------------------
+# REGLA: RootObjectRule (NUEVA)
+# -----------------------------------------------------------------
+@RuleRegistry.register(tags=["structure", "bootstrap"], priority=1)
+class RootObjectRule(Rule):
     """
-    Elimina prefijos de texto (basura) antes de la estructura JSON real.
-
-    Lógica corregida:
-    - Si empieza con { o [, no hacer nada.
-    - Si empieza con una palabra clave (ej. "user:"), NO ES BASURA.
-    - Solo cortar si el inicio NO tiene estructura y luego sí la hay.
-
-    MEJORA: Detecta comandos SQL (INSERT, SELECT, UPDATE, etc.) para eliminarlos por completo.
+    Envuelve la lista completa de tokens en un objeto JSON raíz { ... } si no está envuelta.
+    Esto soluciona los casos "key: val, key: val" que se quedan colgando al final porque el parser espera una estructura de objeto completa.
     """
-
-    # Lista negra de palabras que probablemente no son JSON root keys válidos (SQL, palabras clave de lenguajes naturales)
-    NON_JSON_STARTERS = {
-        'insert', 'select', 'update', 'delete', 'create', 'alter', 'drop', 'grant', 'revoke',
-        'from', 'where', 'into', 'values', 'set', 'declare', 'case', 'go', 'do', 'begin',
-        'print', 'echo', 'export', 'import', 'class', 'def', 'function', 'return', 'if', 'else', 'for', 'while',
-        'hola', 'que', 'hay', 'esto', 'no', 'de', 'la', 'el', 'en', 'un', 'una', 'es'
-        # Palabras comunes que suelen romper el inicio (Caso 26)
-    }
 
     def applies(self, context: Context) -> bool:
         tokens = context.tokens
         if len(tokens) < 2:
             return False
 
-        # Si ya empieza con estructura válida, no hacer nada
+        # Si ya tiene llave/corchete raíz, no hacer nada
         if tokens[0].type in (TokenType.LBRACE, TokenType.LBRACKET):
             return False
 
-        # Si el primer token es un comando SQL o palabra irrelevante, cortar todo.
-        # Esto arregla CASO 24 (SQL) y CASO 26 ("hola mundo").
-        if tokens[0].type == TokenType.BARE_WORD and tokens[0].value.lower() in self.NON_JSON_STARTERS:
-            return True
-
-        # Si el primer token es una palabra clave (ej. "user:"), NO ES BASURA.
-        if tokens[0].type == TokenType.BARE_WORD:
-            if len(tokens) > 1 and tokens[1].type in (TokenType.COLON, TokenType.ASSIGN):
-                return False  # No aplicar, el inicio es válido (ej: user: admin)
-
-        # Si llegamos aquí, probablemente hay basura al inicio.
-        # Buscamos estructura posterior para cortar prefijo.
-        for i in range(1, len(tokens)):
-            if tokens[i].type in (TokenType.LBRACE, TokenType.LBRACKET):
+        # Detectar si el primer token es BARE_WORD y el segundo es COLON.
+        # Esto sugiere 'key: ...'
+        # Nota: Es una heurística débil pero efectiva para Frankenstein JSONs simples.
+        if (tokens[0].type == TokenType.BARE_WORD and tokens[1].type == TokenType.COLON):
+            # Verificar si parece una estructura de valores múltiples o anidación.
+            # Si el último token es un valor, probablemente es un objeto.
+            # Si el último token es un COLON, probablemente es una estructura anidada.
+            # Vamos a envolver todo, si tiene al menos 3 claves separadas.
+            colon_count = sum(1 for t in tokens if t.type == TokenType.COLON)
+            if colon_count >= 2:
                 return True
 
-                # Buscar clave: valor
-            if tokens[i].type == TokenType.BARE_WORD:
-                if i + 1 < len(tokens) and tokens[i + 1].type == TokenType.COLON:
-                    return True
-
-        return False
-
-    def apply(self, context: Context):
-        # Cortar todo el inicio basura
-        # Para CASO 26 ("hola mundo..."), esto borrará todo.
-        # Para CASO 24 ("INSERT..."), esto borrará el comando SQL.
-        context.tokens = [t for t in context.tokens if
-                          t.type != TokenType.BARE_WORD or t.value.lower() not in self.NON_JSON_STARTERS]
-        context.mark_changed()
-        context.record_rule(self.name)
-
-
-# pyparsejson/rules/structure/wrappers.py - REEMPLAZAR WrapRootObjectRule completo
-
-@RuleRegistry.register(tags=["structure", "bootstrap"], priority=5)
-class WrapRootObjectRule(Rule):
-    """
-    Envuelve pares sueltos en objeto raíz { ... }
-
-    VERSIÓN CORREGIDA: Previene doble wrapping verificando si ya hay llaves.
-    """
-
-    def applies(self, context: Context) -> bool:
-        tokens = context.tokens
-        if not tokens:
+        # Detectar implícitos: key: 1, 2, 3
+        # Solo envolver si NO hay estructura existente.
+        # Si ya hay estructura, no hacer nada (para evitar re-empaquetar).
+        has_structure = any(t.type in (TokenType.LBRACE, TokenType.LBRACKET, TokenType.LBRACE, TokenType.LBRACKET) for t in tokens)
+        if has_structure:
             return False
 
-        # ⭐ CORRECCIÓN CRÍTICA: Contar llaves de apertura consecutivas al inicio
-        opening_braces = 0
-        for i, token in enumerate(tokens):
-            if token.type == TokenType.LBRACE:
-                opening_braces += 1
-            else:
-                break  # Detenerse en el primer token que NO sea LBRACE
-
-        # Si ya hay 1 o más llaves de apertura, NO aplicar
-        # Esto previene {{...}} o {{{...}}}
-        if opening_braces >= 1:
-            return False
-
-        # Verificación adicional: Si termina con llave de cierre, probablemente ya está envuelto
-        closing_braces = 0
-        for i in range(len(tokens) - 1, -1, -1):
-            if tokens[i].type == TokenType.RBRACE:
-                closing_braces += 1
-            else:
-                break
-
-        if closing_braces >= 1:
-            return False
-
-        # Ya está envuelto en array
-        if tokens[0].type == TokenType.LBRACKET and tokens[-1].type == TokenType.RBRACKET:
-            return False
-
-        # Detectar al menos UN par clave:valor suelto
-        for i in range(len(tokens) - 1):
-            if (tokens[i].type in (TokenType.BARE_WORD, TokenType.STRING) and
-                    tokens[i + 1].type in (TokenType.COLON, TokenType.ASSIGN)):
-                return True
-
-        return False
-
-    def apply(self, context: Context):
-        """
-        Envolver TODO el contenido en { ... }
-        Solo se ejecuta si applies() retorna True (no hay llaves ya)
-        """
-        context.tokens = [
-            Token(TokenType.LBRACE, "{", "{", 0),
-            *context.tokens,
-            Token(TokenType.RBRACE, "}", "}", len(context.tokens))
-        ]
-        context.mark_changed()
-        context.record_rule(self.name)
-
-
-@RuleRegistry.register(tags=["structure", "bootstrap"], priority=9999)
-class ImplicitArrayRule(Rule):
-    """
-    Detecta secuencias implícitas de valores (sin clave) y las envuelve en array.
-    Ej: "ids: 1, 2, 3" → "ids: [1, 2, 3]"
-
-    VERSIÓN CORREGIDA: Solo aplica cuando hay MÚLTIPLES valores sin claves intermedias.
-    """
-
-    def applies(self, context: Context) -> bool:
-        tokens = context.tokens
-        for i in range(len(tokens) - 5):  # Necesitamos al menos: clave : val , val
-            # Patrón: clave : valor , valor (SIN otra clave en medio)
-            if (tokens[i].type in (TokenType.BARE_WORD, TokenType.STRING) and
-                    i + 1 < len(tokens) and tokens[i + 1].type == TokenType.COLON and
-                    i + 2 < len(tokens) and tokens[i + 2].type in (TokenType.NUMBER, TokenType.STRING,
-                                                                   TokenType.BOOLEAN, TokenType.BARE_WORD) and
-                    i + 3 < len(tokens) and tokens[i + 3].type == TokenType.COMMA and
-                    i + 4 < len(tokens) and tokens[i + 4].type in (TokenType.NUMBER, TokenType.STRING,
-                                                                   TokenType.BOOLEAN, TokenType.BARE_WORD)):
-
-                # VERIFICACIÓN CRÍTICA: El token después de la coma NO debe ser una clave
-                # Si el token en i+5 es ":", entonces i+4 es una clave, NO un valor de array
-                if i + 5 < len(tokens) and tokens[i + 5].type == TokenType.COLON:
-                    continue  # No es un array implícito, es otro par clave:valor
-
-                return True
-
-        return False
+        return True
 
     def apply(self, context: Context):
         tokens = context.tokens
-        new_tokens = []
-        i = 0
 
-        while i < len(tokens):
-            # Detectar patrón: clave : valor , valor ... (sin claves intermedias)
-            if (i + 4 < len(tokens) and
-                    tokens[i].type in (TokenType.BARE_WORD, TokenType.STRING) and
-                    tokens[i + 1].type == TokenType.COLON and
-                    tokens[i + 2].type in (TokenType.NUMBER, TokenType.STRING, TokenType.BOOLEAN,
-                                           TokenType.BARE_WORD) and
-                    tokens[i + 3].type == TokenType.COMMA and
-                    tokens[i + 4].type in (TokenType.NUMBER, TokenType.STRING, TokenType.BOOLEAN, TokenType.BARE_WORD)):
+        # Buscar el final de la secuencia para envolver
+        # Si hay múltiples colones al final (ej: key1:1, key2:2), no envolver.
+        # Si hay un solo colon y termina en valor, envolver.
+        colon_count = sum(1 for t in tokens if t.type == TokenType.COLON)
 
-                # VERIFICACIÓN: ¿El siguiente es otra clave o un valor de array?
-                if i + 5 < len(tokens) and tokens[i + 5].type == TokenType.COLON:
-                    # Es otra clave, NO convertir en array
-                    new_tokens.append(tokens[i])
-                    i += 1
-                    continue
+        # Si es un solo par y no tiene llaves
+        if colon_count == 1 and not any(t.type == TokenType.LBRACE for t in tokens):
+            # Envolver en { ... }
+            l_brace = Token(TokenType.LBRACE, "{", "{", tokens[0].position)
+            r_brace = Token(TokenType.RBRACE, "}", "}", len(tokens))
 
-                # Es un array implícito real - encontrar el final
-                start_val = i + 2
-                j = i + 3
-                in_sequence = True
-
-                while j < len(tokens) and in_sequence:
-                    if tokens[j].type in (TokenType.NUMBER, TokenType.STRING, TokenType.BOOLEAN, TokenType.BARE_WORD):
-                        # Verificar si el siguiente es ":" (sería una clave)
-                        if j + 1 < len(tokens) and tokens[j + 1].type == TokenType.COLON:
-                            in_sequence = False
-                            break
-                        j += 1
-                    elif j + 1 < len(tokens) and tokens[j].type == TokenType.COMMA and tokens[j + 1].type in (
-                            TokenType.NUMBER, TokenType.STRING, TokenType.BOOLEAN, TokenType.BARE_WORD
-                    ):
-                        # Verificar si después de la coma hay una clave
-                        if j + 2 < len(tokens) and tokens[j + 2].type == TokenType.COLON:
-                            in_sequence = False
-                            break
-                        j += 2
-                    else:
-                        in_sequence = False
-
-                # Envolver en array
-                new_tokens.append(tokens[i])  # clave
-                new_tokens.append(tokens[i + 1])  # :
-                new_tokens.append(Token(TokenType.LBRACKET, "[", "[", tokens[i].position))
-                new_tokens.extend(tokens[i + 2:j])
-                new_tokens.append(
-                    Token(TokenType.RBRACKET, "]", "]", tokens[j - 1].position if j > i + 2 else tokens[i].position))
-
-                i = j
-            else:
-                new_tokens.append(tokens[i])
-                i += 1
-
-        if len(new_tokens) != len(tokens):
+            new_tokens = [l_brace] + tokens + [r_brace]
             context.tokens = new_tokens
+            context.mark_changed()
+            context.record_rule(self.name)
+            return
+
+        # Si hay múltiples pares (ej: key1:1, key2:2), envolver en { ... }
+        # Esto es más agresivo pero necesario para Caso 15, 16, etc.
+        if colon_count >= 2 and not any(t.type == TokenType.LBRACE for t in tokens):
+            l_brace = Token(TokenType.LBRACE, "{", "{", tokens[0].position)
+            r_brace = Token(TokenType.RBRACE, "}", "}", len(tokens))
+            new_tokens = [l_brace] + tokens + [r_brace]
+            context.tokens = new_tokens
+            context.mark_changed()
+            context.record_rule(self.name)
+
+
+# -----------------------------------------------------------------
+# REGLA: EnsureTrailingCommasBeforeEndRule (NUEVA)
+# -----------------------------------------------------------------
+@RuleRegistry.register(tags=["structure", "cleanup"], priority=100)
+class EnsureTrailingCommasBeforeEndRule(Rule):
+    """
+    Limpia tokens basura al final del documento que impiden el cierre.
+    El objetivo es convertir {key1: val1, key2: val2} en {key1: val1, key2: val2, } (coma final).
+    """
+
+    def applies(self, context: Context) -> bool:
+        tokens = context.tokens
+        if len(tokens) < 2:
+            return False
+
+        # Si ya termina con } o ], y el anterior es un valor (no ), añadir ,
+        if (tokens[-1].type in (TokenType.RBRACE, TokenType.RBRACKET)):
+            if len(tokens) > 1 and tokens[-2].type in (TokenType.NUMBER, TokenType.STRING, TokenType.BOOLEAN, TokenType.NULL):
+                return True
+
+        # Si termina en valor simple y NO es un valor vacío, añadir ,}
+        # Esto arregla {"user":"admin","active":true} → {"user":"admin","active":true, }
+        if tokens[-1].type in (TokenType.NUMBER, TokenType.STRING, TokenType.BOOLEAN, TokenType.NULL):
+            if tokens[-1].value not in ("true", "false", "null", ""):
+                # No es un valor vacío.
+                return True
+
+        return False
+
+    def apply(self, context: Context):
+        tokens = context.tokens
+        changed = False
+
+        # 1. Coma antes de } o ] (excepto si es JSON vacío)
+        if len(tokens) >= 2 and tokens[-1].type in (TokenType.RBRACE, TokenType.RBRACKET):
+            # Comprobar token anterior
+            if len(tokens) >= 2:
+                prev = tokens[-2]
+                if prev.type not in (TokenType.NUMBER, TokenType.STRING, TokenType.BOOLEAN, TokenType.NULL):
+                    # Es valor, no una com.
+                    comma = Token(
+                        type=TokenType.COMMA,
+                        value=",",
+                        raw_value=",",
+                        position=len(tokens),
+                        line=0,
+                        column=0
+                    )
+                    # Insertar coma antes del cierre
+                    tokens.insert(-1, comma)
+                    changed = True
+
+        # 2. Coma al final si es un valor simple
+        # Nota: Esto NO arregla key1: val, key2: val2 porque se detecta antes de RootObjectRule.
+        # Pero arregla el trunco del Caso 1: {"user":"admin","active":true}
+        if not changed:
+            if tokens[-1].type in (TokenType.NUMBER, TokenType.STRING, TokenType.BOOLEAN, TokenType.NULL):
+                if tokens[-1].value not in ("true", "false", "null", ""):
+                    tokens.append(
+                        Token(
+                            type=TokenType.COMMA,
+                            value=",",
+                            raw_value=",",
+                            position=len(tokens),
+                            line=0,
+                            column=0
+                        ))
+                    changed = True
+
+        if changed:
+            context.tokens = tokens
             context.mark_changed()
             context.record_rule(self.name)

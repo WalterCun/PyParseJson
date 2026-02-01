@@ -1,3 +1,4 @@
+# Path: pyparsejson\rules\structure\separators.py
 from pyparsejson.core.context import Context
 from pyparsejson.core.token import TokenType, Token
 from pyparsejson.rules.base import Rule
@@ -27,19 +28,19 @@ class AddMissingCommasRule(Rule):
     """
     Inserta comas faltantes entre pares clave:valor.
 
-    VERSIÓN CORREGIDA - Detecta correctamente cuándo insertar comas.
+    VERSIÓN MEJORADA: Soporta claves compuestas por múltiples tokens (multi-word keys).
+    Escanea hacia adelante para encontrar el separador definitivo (: o =).
     """
 
-    # CÓDIGO CORREGIDO:
     def applies(self, context: Context) -> bool:
         tokens = context.tokens
+        if len(tokens) < 2:
+            return False
 
-        for i in range(len(tokens) - 2):
+        for i in range(len(tokens) - 1):
             current = tokens[i]
-            next_token = tokens[i + 1]
-            next_next = tokens[i + 2]
 
-            # Detectar si current es fin de valor
+            # 1. Verificar si el token actual es el FIN de un valor
             is_value_end = current.type in (
                 TokenType.NUMBER, TokenType.STRING, TokenType.BOOLEAN,
                 TokenType.NULL, TokenType.RBRACE, TokenType.RBRACKET, TokenType.RPAREN
@@ -48,23 +49,45 @@ class AddMissingCommasRule(Rule):
             if not is_value_end:
                 continue
 
-            # Detectar si next_token es una clave (simple o compuesta)
-            is_next_key = False
+            # 2. Buscar el siguiente separador (COLON o ASSIGN) para determinar dónde termina la próxima clave
+            #    Buscamos en el rango i+1 hasta len(tokens)
+            next_sep_idx = -1
+            j = i + 1
+            while j < len(tokens):
+                if tokens[j].type in (TokenType.COLON, TokenType.ASSIGN):
+                    next_sep_idx = j
+                    break
+                j += 1
 
-            if next_token.type in (TokenType.BARE_WORD, TokenType.STRING):
-                # Caso 1: Clave simple → STRING :
-                if next_next.type in (TokenType.COLON, TokenType.ASSIGN):
-                    is_next_key = True
+            # Si no encontramos separador, no hay par clave:valor siguiente
+            if next_sep_idx == -1:
+                continue
 
-                # Caso 2: Clave compuesta → STRING STRING : o STRING STRING =
-                elif (next_next.type == TokenType.STRING and
-                      i + 3 < len(tokens) and
-                      tokens[i + 3].type in (TokenType.COLON, TokenType.ASSIGN)):
-                    is_next_key = True
+            # 3. Verificar si hay un token inmediatamente después del valor actual que pueda ser clave
+            if i + 1 >= next_sep_idx:
+                continue  # No hay espacio para una clave
 
-            # Si es clave y no hay coma, se necesita añadir
-            if is_next_key and next_token.type != TokenType.COMMA:
-                return True
+            # 4. El candidato a clave es el token en i+1
+            next_token = tokens[i + 1]
+
+            # Si el candidato ya es una COMMA, todo está bien
+            if next_token.type == TokenType.COMMA:
+                continue
+
+            # Si el candidato es parte de una clave (BARE_WORD o STRING) y eventualmente le sigue un separador,
+            # entonces necesitamos insertar una coma antes de él.
+            is_potential_key = next_token.type in (TokenType.BARE_WORD, TokenType.STRING)
+
+            if is_potential_key:
+                # Verificamos que entre i+1 y next_sep_idx solo haya elementos válidos de clave (palabras o strings)
+                valid_key_parts = True
+                for k in range(i + 1, next_sep_idx):
+                    if tokens[k].type not in (TokenType.BARE_WORD, TokenType.STRING):
+                        valid_key_parts = False
+                        break
+
+                if valid_key_parts:
+                    return True
 
         return False
 
@@ -78,15 +101,12 @@ class AddMissingCommasRule(Rule):
             current = tokens[i]
             new_tokens.append(current)
 
-            # Necesitamos al menos 2 tokens adelante
-            if i + 2 >= len(tokens):
+            # Necesitamos espacio para buscar
+            if i + 1 >= len(tokens):
                 i += 1
                 continue
 
-            next_token = tokens[i + 1]
-            next_next = tokens[i + 2]
-
-            # CONDICIÓN 1: Token actual es FIN de un valor
+            # Lógica similar a applies(): buscar el separador final para definir la clave
             is_value_end = current.type in (
                 TokenType.STRING,
                 TokenType.NUMBER,
@@ -96,18 +116,45 @@ class AddMissingCommasRule(Rule):
                 TokenType.RBRACKET
             )
 
-            # CONDICIÓN 2: Siguiente token es INICIO de clave (palabra/string + colon)
-            # IMPORTANTE: Verificar que next_next sea COLON
-            is_next_key = (
-                    next_token.type in (TokenType.BARE_WORD, TokenType.STRING) and
-                    next_next.type == TokenType.COLON
-            )
+            if not is_value_end:
+                i += 1
+                continue
 
-            # EXCEPCIÓN: No insertar si ya hay coma
-            already_has_comma = next_token.type == TokenType.COMMA
+            # Buscar índice del siguiente separador
+            next_sep_idx = -1
+            j = i + 1
+            while j < len(tokens):
+                if tokens[j].type in (TokenType.COLON, TokenType.ASSIGN):
+                    next_sep_idx = j
+                    break
+                j += 1
 
-            # INSERTAR COMA
-            if is_value_end and is_next_key and not already_has_comma:
+            # Si no hay estructura clave:valor siguiente, continuar
+            if next_sep_idx == -1:
+                i += 1
+                continue
+
+            # Revisar el token inmediatamente siguiente
+            next_token_candidate = tokens[i + 1]
+
+            # Si ya hay coma, o el siguiente no parece un inicio de clave, continuar
+            if next_token_candidate.type == TokenType.COMMA:
+                i += 1
+                continue
+
+            if next_token_candidate.type not in (TokenType.BARE_WORD, TokenType.STRING):
+                i += 1
+                continue
+
+            # Validar que los tokens entre aquí y el separador sean válidos para una clave
+            valid_key_sequence = True
+            for k in range(i + 1, next_sep_idx):
+                if tokens[k].type not in (TokenType.BARE_WORD, TokenType.STRING):
+                    valid_key_sequence = False
+                    break
+
+            if valid_key_sequence:
+                # INSERTAR COMMA
                 comma = Token(
                     type=TokenType.COMMA,
                     value=",",
@@ -178,6 +225,7 @@ class QuoteKeysRule(Rule):
 
         for i, token in enumerate(context.tokens):
             # Mirar hacia adelante para ver si es clave
+            # Nota: QuoteKeysRule debe ejecutarse después de AddMissingCommasRule
             is_key = (
                     i + 1 < len(context.tokens) and
                     context.tokens[i + 1].type == TokenType.COLON and

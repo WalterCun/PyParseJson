@@ -191,7 +191,7 @@ def run_demo():
     results.append(run_case("CASO 32: Texto Real 1", """{
 breakfast:1,
 parking:1,
-final_consumer_invoice:316513653216,
+final_consumer_invoice:0316513653216,
 foreigner:0,
 }""",pipeline))
     results.append(run_case("CASO 33: Texto Real 2", """{
@@ -240,7 +240,7 @@ if __name__ == "__main__":
         import os
 
         os.system('')
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"Error: {e}")
 
     run_demo()
