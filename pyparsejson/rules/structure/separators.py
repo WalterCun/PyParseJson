@@ -30,40 +30,40 @@ class AddMissingCommasRule(Rule):
     VERSIÓN CORREGIDA - Detecta correctamente cuándo insertar comas.
     """
 
+    # CÓDIGO CORREGIDO:
     def applies(self, context: Context) -> bool:
         tokens = context.tokens
-        if len(tokens) < 4:  # Necesitamos: valor, clave, :, valor (mínimo)
-            return False
 
-        # Buscar patrón: valor + clave + :
         for i in range(len(tokens) - 2):
             current = tokens[i]
             next_token = tokens[i + 1]
-            next_next = tokens[i + 2] if i + 2 < len(tokens) else None
+            next_next = tokens[i + 2]
 
-            # ¿El token actual es fin de valor?
+            # Detectar si current es fin de valor
             is_value_end = current.type in (
-                TokenType.STRING, TokenType.NUMBER, TokenType.BOOLEAN,
-                TokenType.NULL, TokenType.RBRACE, TokenType.RBRACKET
+                TokenType.NUMBER, TokenType.STRING, TokenType.BOOLEAN,
+                TokenType.NULL, TokenType.RBRACE, TokenType.RBRACKET, TokenType.RPAREN
             )
 
-            # ¿El siguiente es inicio de clave?
-            is_next_key = (
-                    next_token.type in (TokenType.BARE_WORD, TokenType.STRING) and
-                    next_next and next_next.type == TokenType.COLON
-            )
+            if not is_value_end:
+                continue
 
-            is_number_to_word  = (
-                    current.type == TokenType.NUMBER and
-                    next_token.type == TokenType.BARE_WORD and
-                    next_next and next_next.type == TokenType.COLON
-            )
+            # Detectar si next_token es una clave (simple o compuesta)
+            is_next_key = False
 
-            # ¿Ya hay coma?
-            has_comma = next_token.type == TokenType.COMMA
+            if next_token.type in (TokenType.BARE_WORD, TokenType.STRING):
+                # Caso 1: Clave simple → STRING :
+                if next_next.type in (TokenType.COLON, TokenType.ASSIGN):
+                    is_next_key = True
 
-            if (is_value_end and is_next_key and not has_comma) or \
-                    (is_number_to_word and not has_comma):  # ← AÑADIR ESTO
+                # Caso 2: Clave compuesta → STRING STRING : o STRING STRING =
+                elif (next_next.type == TokenType.STRING and
+                      i + 3 < len(tokens) and
+                      tokens[i + 3].type in (TokenType.COLON, TokenType.ASSIGN)):
+                    is_next_key = True
+
+            # Si es clave y no hay coma, se necesita añadir
+            if is_next_key and next_token.type != TokenType.COMMA:
                 return True
 
         return False
