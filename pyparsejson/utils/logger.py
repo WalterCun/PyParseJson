@@ -1,6 +1,5 @@
 # pyparsejson/utils/logger.py
 import logging
-from typing import Optional
 
 
 class RepairLogger:
@@ -15,6 +14,9 @@ class RepairLogger:
             )
             handler.setFormatter(formatter)
             self.logger.addHandler(handler)
+
+    def debug(self, msg: str):
+        self.logger.debug(msg)
 
     def debug_tokens(self, stage: str, tokens: list):
         """Log tokens en formato legible"""

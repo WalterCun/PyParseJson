@@ -1,25 +1,26 @@
+# Path: pyparsejson\core\token.py
 from enum import Enum, auto
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 class TokenType(Enum):
     """Tipos de tokens soportados por el analizador léxico."""
-    LBRACE = auto()    # {
-    RBRACE = auto()    # }
+    LBRACE = auto()  # {
+    RBRACE = auto()  # }
     LBRACKET = auto()  # [
     RBRACKET = auto()  # ]
-    COLON = auto()     # :
-    COMMA = auto()     # ,
-    STRING = auto()    # "foo", 'foo'
-    NUMBER = auto()    # 123, 12.34, 1e5
-    BOOLEAN = auto()   # true, false
-    NULL = auto()      # null
-    BARE_WORD = auto() # foo (identificadores sin comillas)
-    ASSIGN = auto()    # =
-    LPAREN = auto()    # (
-    RPAREN = auto()    # )
-    DATE = auto()      # 2026-01-01
-    UNKNOWN = auto()   # Caracteres no reconocidos
+    COLON = auto()  # :
+    COMMA = auto()  # ,
+    STRING = auto()  # "foo", 'foo'
+    NUMBER = auto()  # 123, 12.34, 1e5
+    BOOLEAN = auto()  # true, false
+    NULL = auto()  # null
+    BARE_WORD = auto()  # foo (identificadores sin comillas)
+    ASSIGN = auto()  # =
+    LPAREN = auto()  # (
+    RPAREN = auto()  # )
+    DATE = auto()  # 2026-01-01
+    UNKNOWN = auto()  # Caracteres no reconocidos
 
 
 @dataclass

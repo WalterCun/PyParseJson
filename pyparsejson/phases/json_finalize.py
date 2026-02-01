@@ -1,3 +1,4 @@
+# Path: pyparsejson\phases\json_finalize.py
 """
 ARCHIVO CORREGIDO: pyparsejson/phases/json_finalize.py
 
@@ -27,14 +28,14 @@ class JSONFinalize:
         Convierte tokens a string JSON válido SIN duplicar comillas.
         """
         if not context.tokens:
-            print("[FINALIZE] ⚠️ WARNING: No hay tokens para procesar")
+            self.logger.warning("⚠️ No hay tokens para procesar, devolviendo objeto vacío")
             return "{}"
         # print(f"[FINALIZE] Procesando {len(context.tokens)} tokens")
 
         parts = []
         for i, token in enumerate(context.tokens):
             # DEBUG: Descomentar para ver qué está procesando
-            self.logger(f"[FINALIZE] Token {i}: {token.type.name} = '{token.value}'")
+            self.logger.debug(f"[FINALIZE] Token {i}: {token.type.name} = '{token.value}'")
 
             if token.type == TokenType.STRING:
                 val = token.value
@@ -75,8 +76,4 @@ class JSONFinalize:
                 parts.append(token.value)
 
         result = "".join(parts)
-
-        # DEBUG: Descomentar para ver el resultado final
-        # print(f"[FINALIZE] Result: {result[:200]}...")
-
         return result

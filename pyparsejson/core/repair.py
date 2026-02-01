@@ -1,3 +1,4 @@
+# Path: pyparsejson\core\repair.py
 """
 ARCHIVO CORREGIDO: pyparsejson/core/repair.py
 
@@ -43,7 +44,9 @@ class Repair:
         self.engine = RuleEngine()
         self.pre_normalize = PreNormalizeText()
         self.tokenizer = TolerantTokenizer()
-        self.finalizer = JSONFinalize()
+        # Inyectar el logger al finalizador
+        self.logger = RepairLogger("pyparsejson.repair", level=log_level)
+        self.finalizer = JSONFinalize(log_level)
         self.quality_evaluator = RepairQualityEvaluator()
 
         self.dry_run = dry_run
@@ -55,8 +58,6 @@ class Repair:
         self.user_flows: List[Flow] = []
         if auto_flows:
             self.add_flow(StandardJSONRepairFlow(self.engine))
-
-        self.logger = RepairLogger("pyparsejson.repair", level=log_level)
 
     def _debug_log(self, message: str):
         """Imprime mensajes de debug si está habilitado."""
@@ -171,7 +172,7 @@ class Repair:
         context.report.detected_issues.append(
             "⚠️ No se pudo reparar el JSON - estructura irrecuperable"
         )
-        self.logger.error(f"Parseo fallido. Devolviendo objeto vacío. Último intento: {final_json[:100]}")
+
         return True, {}, "{}"
 
     def _finalize_report(self, context: Context, success: bool, python_obj: Any, final_json: str):
