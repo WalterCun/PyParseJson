@@ -16,8 +16,9 @@ class TolerantTokenizer:
 
         # Fechas y formatos especiales (antes de números para evitar 2026-01-01 → 2026 - 01 - 01)
         (TokenType.STRING, r'\d{4}-\d{2}-\d{2}'),  # Fechas YYYY-MM-DD
+        (TokenType.STRING, r'\d{2}-\d{2}-\d{4}'),
 
-        (TokenType.STRING, r'\d{3}-\d{4}'),  # Formato NNN-NNNN (555-0199)
+        (TokenType.STRING, r'\d{3}-\d{4}'),  # Formato Phone (555-0199)
         (TokenType.STRING, r'\d{3}-\d{3}-\d{4}'),  # Formato NNN-NNN-NNNN completo
 
         (TokenType.STRING, r'"(?:\\.|[^"\\])*"'),  # Comillas dobles
@@ -26,6 +27,7 @@ class TolerantTokenizer:
         # Números (antes de BARE_WORD para evitar fragmentación)
         # (TokenType.NUMBER, r'-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?'),
         (TokenType.NUMBER, r'-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?'),
+        (TokenType.NUMBER, r'-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?'),
 
         # (TokenType.STRING, r'\d{5}(-\d{4})?'),  # Códigos postales
 

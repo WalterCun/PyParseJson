@@ -171,7 +171,7 @@ class Repair:
         context.report.detected_issues.append(
             "⚠️ No se pudo reparar el JSON - estructura irrecuperable"
         )
-
+        self.logger.error(f"Parseo fallido. Devolviendo objeto vacío. Último intento: {final_json[:100]}")
         return True, {}, "{}"
 
     def _finalize_report(self, context: Context, success: bool, python_obj: Any, final_json: str):

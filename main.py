@@ -9,11 +9,11 @@ El script ejecuta cada caso a través del pipeline de reparación estándar y lu
 imprime un informe detallado de los resultados, separando los casos exitosos
 de los fallidos.
 """
-import sys
 
 from pyparsejson.core.repair import Repair
 from pyparsejson.report.repair_report import RepairReport
 
+case: list = []
 
 class Colors:
     """Clase de utilidad para imprimir texto con colores en la terminal."""
@@ -81,7 +81,7 @@ def run_demo():
     """
     print(f"{Colors.BOLD}PYPARSEJSON - BATERÍA DE PRUEBAS EXTENDIDA{Colors.ENDC}")
     results = []
-    pipeline = Repair(auto_flows=True)
+    pipeline = Repair(debug=True)
 
     # =================================================================
     # GRUPO 1: FUNDAMENTOS (JSON Mínimo)
@@ -94,7 +94,8 @@ def run_demo():
     # =================================================================
     results.append(run_case("CASO 4: Booleanos y números mixtos", 'enabled: true, retries: 3, timeout: 10.5', pipeline))
     results.append(run_case("CASO 5: Notación Científica", 'avogadro: 6.022e23, planck: 6.626e-34', pipeline))
-    results.append(run_case("CASO 6: Fechas como números (Smart Typing)", 'start_date: 2026-01-01, zip_code: 00851, phone: 555-0199', pipeline))
+    results.append(run_case("CASO 6: Fechas como números (Smart Typing)",
+                            'start_date: 2026-01-01, zip_code: 00851, phone: 555-0199', pipeline))
     results.append(run_case("CASO 7: Comillas simples", "name: 'John Doe', role: 'admin'", pipeline))
     results.append(run_case("CASO 8: Unicode y Acentos", 'nombre: "François", país: "España"', pipeline))
     # =================================================================
@@ -164,20 +165,42 @@ def run_demo():
     # GRUPO 5: CASOS LÍMITE Y RAREZAS
     # =================================================================
     results.append(run_case("CASO 19: String vacío y Null", 'name: "", bio: null', pipeline))
-    results.append(run_case("CASO 20: Booleanos como Strings vs Literales", 'is_admin: "true", is_active: true', pipeline))
+    results.append(
+        run_case("CASO 20: Booleanos como Strings vs Literales", 'is_admin: "true", is_active: true', pipeline))
     results.append(run_case("CASO 21: Números negativos", 'balance: -500.50, offset: -10', pipeline))
-    results.append(run_case("CASO 22: Espacios extra alrededor de claves", '{  user  :  admin  ,  active  :  si  }', pipeline))
+    results.append(
+        run_case("CASO 22: Espacios extra alrededor de claves", '{  user  :  admin  ,  active  :  si  }', pipeline))
     results.append(run_case("CASO 23: Lista vacía implícita", 'list: []', pipeline))
     # =================================================================
     # GRUPO 6: CHAOS TOTAL (Logs y outputs raros)
     # =================================================================
-    results.append(run_case("CASO 24: Log de aplicación tipo SQL", 'INSERT INTO users (id, name) VALUES (1, "Carlos")', pipeline))
+    results.append(
+        run_case("CASO 24: Log de aplicación tipo SQL", 'INSERT INTO users (id, name) VALUES (1, "Carlos")', pipeline))
     results.append(run_case("CASO 25: URL y Rutas", 'url: https://example.com/api, path: /var/www/html', pipeline))
-    results.append(run_case("CASO 26: Texto casi libre (No se puede arreglar)", 'hola mundo esto no es json pero tiene clave:valor', pipeline))
+    results.append(run_case("CASO 26: Texto casi libre (No se puede arreglar)",
+                            'hola mundo esto no es json pero tiene clave:valor', pipeline))
     results.append(run_case("CASO 27: JSON casi válido", '{"a":1,"b":2,}', pipeline))
     results.append(run_case("CASO 28: Entrada vacía", '', pipeline))
     results.append(run_case("CASO 29: Solo palabras sueltas", 'esto no tiene nada', pipeline))
-    results.append(run_case("CASO 30: Comentarios C-style (Experimental/Posible fallo)", 'user: admin // superuser\nactive: si', pipeline))
+    results.append(
+        run_case("CASO 30: Comentarios C-style (Experimental/Posible fallo)", 'user: admin // superuser\nactive: si',
+                 pipeline))
+    results.append(run_case("CASO 31: Textos largos (Experimental/Posible fallo)",
+                            'user: este es un usuario administrador el cual debe estar siempre activo,active: si',
+                            pipeline))
+    results.append(run_case("CASO 32: Texto Real 1", """{
+breakfast:1,
+parking:1,
+final_consumer_invoice:316513653216,
+foreigner:0,
+}""",pipeline))
+    results.append(run_case("CASO 33: Texto Real 2", """{
+bank:0
+cooperative:0
+voucher:1
+deposit_date:01-01-2026
+}""",pipeline))
+
 
     # =================================================================
     # DEMO: DRY RUN (AUDITORÍA)
@@ -204,7 +227,7 @@ def run_demo():
     print(f"""
     {Colors.BOLD}📊 RESUMEN FINAL{Colors.ENDC}
     ------------------------------------
-    Total casos     : {len(results)}
+    Total casos     : {len(results)} 
     Exitosos        : {len(success_reports)}
     Fallidos        : {len(failed_reports)}
     Ratio éxito     : {len(success_reports) / len(results):.2%}
@@ -215,6 +238,7 @@ if __name__ == "__main__":
     try:
         # Habilita el soporte de colores ANSI en terminales de Windows
         import os
+
         os.system('')
     except Exception:
         pass

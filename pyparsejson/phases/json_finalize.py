@@ -6,8 +6,11 @@ CAMBIOS PRINCIPALES:
 2. Corregida lógica de manejo de comillas
 3. Añadida validación de tokens vacíos
 """
+import logging
+
 from pyparsejson.core.context import Context
 from pyparsejson.core.token import TokenType
+from pyparsejson.utils.logger import RepairLogger
 
 
 class JSONFinalize:
@@ -16,8 +19,10 @@ class JSONFinalize:
     Esta es la última fase antes de intentar el parseo final con `json.loads`.
     """
 
-    @staticmethod
-    def process(context: Context) -> str:
+    def __init__(self, log_level: int = logging.WARNING):
+        self.logger = RepairLogger("JSONFinalize", level=log_level)
+
+    def process(self, context: Context) -> str:
         """
         Convierte tokens a string JSON válido SIN duplicar comillas.
         """
@@ -29,7 +34,7 @@ class JSONFinalize:
         parts = []
         for i, token in enumerate(context.tokens):
             # DEBUG: Descomentar para ver qué está procesando
-            print(f"[FINALIZE] Token {i}: {token.type.name} = '{token.value}'")
+            self.logger(f"[FINALIZE] Token {i}: {token.type.name} = '{token.value}'")
 
             if token.type == TokenType.STRING:
                 val = token.value
