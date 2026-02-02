@@ -11,6 +11,7 @@ CAMBIOS PRINCIPALES:
 4. Corregido _apply_fallback_if_needed()
 5. AÑADIDO SOPORTE PARA MODOS (Strict/Lax)
 6. AÑADIDO IMPRESIÓN DE EMERGENCIA: Imprime el JSON completo si falla el parseo, no solo el trunco.
+7. IMPLEMENTADOS NUEVOS ESTADOS: SUCCESS_EMPTY_INPUT y FAILURE_NO_STRUCTURE
 """
 import json
 import logging
@@ -78,12 +79,16 @@ class Repair:
         self._debug_log(f"Pre-normalized text: {clean_text[:100]}...")
 
         # Caso borde: Texto vacío
+        # SUCCESS_EMPTY_INPUT: El input es null, vacío o solo contiene whitespace
         if not clean_text:
             return RepairReport(
                 success=True,
-                status=RepairStatus.SUCCESS_WITH_WARNINGS,
+                status=RepairStatus.SUCCESS_EMPTY_INPUT,
                 json_text="{}",
-                python_object={}
+                python_object={},
+                quality_score=0.0,
+                iterations=0,
+                applied_rules=[]
             )
 
         # Inicialización del contexto
@@ -102,11 +107,15 @@ class Repair:
 
         if not has_structure:
             self._debug_log("No structure detected, returning empty object")
+            # FAILURE_NO_STRUCTURE: Input no vacío, pero sin estructura JSON válida
             return RepairReport(
-                success=True,
-                status=RepairStatus.SUCCESS_STRICT_JSON,
+                success=False,
+                status=RepairStatus.FAILURE_NO_STRUCTURE,
                 json_text="{}",
                 python_object={},
+                quality_score=0.0,
+                iterations=0,
+                applied_rules=[],
                 detected_issues=["⚠️ No JSON structure detected in input"]
             )
 
@@ -280,9 +289,22 @@ class Repair:
         # Determinar estado final detallado
         if success:
             if python_obj == {}:
-                context.report.status = RepairStatus.SUCCESS_WITH_WARNINGS
-                if "No JSON structure detected" not in str(context.report.detected_issues):
-                    context.report.detected_issues.append("Returned empty object after repair failure")
+                # Si el objeto es vacío, verificar si realmente es un éxito o un fallo encubierto
+                # Si no hubo reglas aplicadas y el input original tenía algo (que no fue filtrado antes),
+                # podría ser un caso de FAILURE_NO_STRUCTURE que pasó el filtro inicial pero terminó vacío.
+                # Pero el filtro inicial ya maneja FAILURE_NO_STRUCTURE.
+                
+                # Si llegamos aquí con {}, significa que el proceso de reparación produjo {},
+                # o que el input era "{}" válido desde el principio.
+                
+                # Si no hubo reglas aplicadas, es un JSON vacío válido original.
+                if not context.report.applied_rules:
+                     context.report.status = RepairStatus.SUCCESS_STRICT_JSON
+                else:
+                    # Si hubo reglas, y terminó vacío, es sospechoso pero técnicamente exitoso.
+                    context.report.status = RepairStatus.SUCCESS_WITH_WARNINGS
+                    if "No JSON structure detected" not in str(context.report.detected_issues):
+                        context.report.detected_issues.append("Returned empty object after repair")
             elif quality_score < 1.0:
                 context.report.status = RepairStatus.SUCCESS_WITH_WARNINGS
             else:
