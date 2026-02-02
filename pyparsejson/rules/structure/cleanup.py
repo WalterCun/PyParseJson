@@ -153,18 +153,29 @@ class StripCommentsRule(Rule):
     def applies(self, context: Context) -> bool:
         tokens = context.tokens
 
-        for i in range(len(tokens) - 1):
-            if (tokens[i].type == TokenType.UNKNOWN and tokens[i].value == "/" and
-                    tokens[i + 1].type == TokenType.UNKNOWN and tokens[i + 1].value == "/"):
-                return True
+        # Optimización: Si no hay tokens que parezcan comentarios, salir rápido
+        # Buscamos // o /* en valores o tokens UNKNOWN consecutivos
+        has_potential_comment = False
+        for i in range(len(tokens)):
+            t = tokens[i]
+            # Si es STRING, ignorar contenido (REGLA DE ORO: STRING es atómico)
+            if t.type == TokenType.STRING:
+                continue
 
-        return any(
-            t.type == TokenType.BARE_WORD and t.value in ("//", "/*", "*/")
-            for t in context.tokens
-        ) or any(
-            "//" in t.value or "/*" in t.value or "*/" in t.value
-            for t in context.tokens
-        )
+            # Detectar // como dos tokens UNKNOWN consecutivos
+            if (i + 1 < len(tokens) and
+                    t.type == TokenType.UNKNOWN and t.value == "/" and
+                    tokens[i + 1].type == TokenType.UNKNOWN and tokens[i + 1].value == "/"):
+                has_potential_comment = True
+                break
+
+            # Detectar // o /* dentro de BARE_WORD o UNKNOWN
+            if t.type in (TokenType.BARE_WORD, TokenType.UNKNOWN):
+                if "//" in t.value or "/*" in t.value or "*/" in t.value:
+                    has_potential_comment = True
+                    break
+
+        return has_potential_comment
 
     def apply(self, context: Context):
         new_tokens = []
@@ -175,8 +186,17 @@ class StripCommentsRule(Rule):
         while i < len(context.tokens):
             token = context.tokens[i]
 
+            # REGLA DE ORO: Si es STRING, se preserva intacto SIEMPRE
+            # (A menos que estemos ya dentro de un bloque de comentario saltando todo)
+            if not skip_until_newline and not skip_block:
+                if token.type == TokenType.STRING:
+                    new_tokens.append(token)
+                    i += 1
+                    continue
+
             # NUEVO: Detectar // como dos tokens UNKNOWN consecutivos
-            if (i + 1 < len(context.tokens) and
+            if (not skip_until_newline and not skip_block and
+                    i + 1 < len(context.tokens) and
                     token.type == TokenType.UNKNOWN and token.value == "/" and
                     context.tokens[i + 1].type == TokenType.UNKNOWN and context.tokens[i + 1].value == "/"):
                 # Encontrado //, saltar hasta fin de línea
@@ -184,31 +204,34 @@ class StripCommentsRule(Rule):
                 skip_until_newline = True
                 continue
 
-            # Manejar comentarios de línea // (cuando están en un solo token)
-            if "//" in token.value:
-                parts = token.value.split("//", 1)
-                if parts[0].strip():
-                    new_tokens.append(Token(
-                        TokenType.BARE_WORD if token.type == TokenType.BARE_WORD else token.type,
-                        parts[0].strip(),
-                        parts[0].strip(),
-                        token.position
-                    ))
-                skip_until_newline = True
-                i += 1
-                continue
+            # Manejar comentarios de línea // (cuando están en un solo token BARE_WORD o UNKNOWN)
+            if not skip_until_newline and not skip_block and token.type in (TokenType.BARE_WORD, TokenType.UNKNOWN):
+                if "//" in token.value:
+                    parts = token.value.split("//", 1)
+                    if parts[0].strip():
+                        new_tokens.append(Token(
+                            TokenType.BARE_WORD if token.type == TokenType.BARE_WORD else token.type,
+                            parts[0].strip(),
+                            parts[0].strip(),
+                            token.position
+                        ))
+                    skip_until_newline = True
+                    i += 1
+                    continue
 
             # Manejar inicio de bloque /*
-            if "/*" in token.value:
-                skip_block = True
-                i += 1
-                continue
+            if not skip_until_newline and not skip_block and token.type in (TokenType.BARE_WORD, TokenType.UNKNOWN):
+                if "/*" in token.value:
+                    skip_block = True
+                    i += 1
+                    continue
 
             # Manejar fin de bloque */
-            if "*/" in token.value:
-                skip_block = False
-                i += 1
-                continue
+            if skip_block and token.type in (TokenType.BARE_WORD, TokenType.UNKNOWN):
+                if "*/" in token.value:
+                    skip_block = False
+                    i += 1
+                    continue
 
             # Saltar tokens dentro de comentario de línea
             if skip_until_newline:
@@ -230,4 +253,3 @@ class StripCommentsRule(Rule):
             context.tokens = new_tokens
             context.mark_changed()
             context.record_rule(self.name)
-
