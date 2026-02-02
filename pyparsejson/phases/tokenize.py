@@ -12,12 +12,19 @@ class TolerantTokenizer:
 
     # Patrones de tokens en orden de precedencia (más específico a más genérico)
     PATTERNS = [
+        # === PATHS (MUST come FIRST to avoid fragmentation) ===
+        # Unix paths: /var/www/html, /usr/local/bin
+        # Windows paths: C:\Users\Admin, D:\Projects
+        (TokenType.STRING, r'(?:[A-Za-z]:)?[/\\](?:[^\s:,\[\]\{\}"\'\)]+[/\\]?)+'),
+
         # URLs completas (DEBE ir ANTES de COLON para evitar fragmentación https:// → https + : + //)
         (TokenType.STRING, r'https?://[^\s"\'\]\}\),]+'),
 
         # Fechas y formatos especiales (antes de números para evitar 2026-01-01 → 2026 - 01 - 01)
-        (TokenType.STRING, r'\d{4}-\d{2}-\d{2}'),  # Fechas YYYY-MM-DD
-        (TokenType.STRING, r'\d{2}-\d{2}-\d{4}'),  # Fechas DD-MM-YYYY (CRITICAL FIX: placed before generic numbers)
+        (TokenType.STRING, r'\d{4}-\d{2}-\d{2}'),
+        (TokenType.STRING, r'\d{2}-\d{2}-\d{4}'),
+        (TokenType.STRING, r'\d{3}-\d{4}'),
+        (TokenType.STRING, r'\d{3}-\d{3}-\d{4}'),
 
         (TokenType.STRING, r'\d{3}-\d{4}'),  # Formato NNN-NNNN (555-0199)
         (TokenType.STRING, r'\d{3}-\d{3}-\d{4}'),  # Formato NNN-NNN-NNNN completo
@@ -26,10 +33,7 @@ class TolerantTokenizer:
         (TokenType.STRING, r"'(?:\\.|[^'\\])*'"),  # Comillas simples
 
         # Números (antes de BARE_WORD para evitar fragmentación)
-        # (TokenType.NUMBER, r'-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?'),
         (TokenType.NUMBER, r'-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?'),
-
-        # (TokenType.STRING, r'\d{5}(-\d{4})?'),  # Códigos postales
 
         # Booleanos y null
         (TokenType.BOOLEAN, r'\b(true|false|si|no|yes|on|off|1|0)\b'),
