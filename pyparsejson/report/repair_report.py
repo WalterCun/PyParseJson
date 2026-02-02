@@ -7,6 +7,8 @@ class RepairStatus(Enum):
     """Estado final del proceso de reparación."""
     SUCCESS_STRICT_JSON = auto()    # JSON válido y parseado correctamente sin advertencias
     SUCCESS_WITH_WARNINGS = auto()  # JSON válido, pero con calidad baja o parches agresivos
+    SUCCESS_EMPTY_INPUT = auto()    # Input vacío o solo whitespace, resultando en {}
+    FAILURE_NO_STRUCTURE = auto()   # Input no vacío, pero no se encontró estructura JSON, resultando en {}
     PARTIAL_REPAIR = auto()         # No es JSON válido, pero se mejoró la estructura
     FAILED_UNRECOVERABLE = auto()   # No se pudo reparar o el input es ininteligible
 
