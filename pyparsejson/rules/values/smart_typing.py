@@ -29,6 +29,9 @@ class SmartTypingRule(Rule):
         r'score|weight|height|width|size)'  # Medidas
     )
 
+    # Regex para validar números JSON estrictos
+    VALID_NUMBER = re.compile(r'^-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?$')
+
     def applies(self, context: Context) -> bool:
         tokens = context.tokens
         if len(tokens) < 3:
@@ -80,11 +83,13 @@ class SmartTypingRule(Rule):
                         next_val.raw_value = next_val.value
                         changed = True
                     elif next_val.type == TokenType.NUMBER:
-                        if not re.match(r'\d{4}-\d{2}-\d{2}', next_val.value):
-                            next_val.type = TokenType.STRING
-                            next_val.value = f'"{next_val.value}"'
-                            next_val.raw_value = next_val.value
-                            changed = True
+                        # Si cumple estrictamente con el formato de número JSON, mantenerlo como NUMBER
+                        if not self.VALID_NUMBER.match(next_val.value):
+                            if not re.match(r'\d{4}-\d{2}-\d{2}', next_val.value):
+                                next_val.type = TokenType.STRING
+                                next_val.value = f'"{next_val.value}"'
+                                next_val.raw_value = next_val.value
+                                changed = True
 
                 # 2. Si la clave sugiere NUMBER y el valor es BareWord
                 elif self.NUMBER_HINTS.search(key_name):
