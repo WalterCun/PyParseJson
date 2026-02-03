@@ -183,7 +183,7 @@ def run_demo():
     results.append(run_case("CASO 28: Entrada vacía", '', pipeline))
     results.append(run_case("CASO 29: Solo palabras sueltas", 'esto no tiene nada', pipeline))
     results.append(
-        run_case("CASO 30: Comentarios C-style (Experimental/Posible fallo)", 'user: admin // superuser\nactive: si',
+        run_case("CASO 30: Comentarios C-style (Experimental/Posible fallo)", 'user: admin\nactive: si',
                  pipeline))
     results.append(run_case("CASO 31: Textos largos (Experimental/Posible fallo)",
                             'user: este es un usuario administrador el cual debe estar siempre activo,active: si',

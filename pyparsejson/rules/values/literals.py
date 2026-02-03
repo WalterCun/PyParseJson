@@ -1,7 +1,8 @@
+from pyparsejson.core.context import Context
+from pyparsejson.core.token import TokenType
+from pyparsejson.core import token as core_token
 from pyparsejson.rules.base import Rule
 from pyparsejson.rules.registry import RuleRegistry
-from pyparsejson.core.context import Context
-from pyparsejson.core.token import TokenType, Token
 
 
 @RuleRegistry.register(tags=["values", "normalization"], priority=50)
@@ -11,8 +12,8 @@ class NormalizeBooleansRule(Rule):
 
     def apply(self, context: Context):
         changed = False
-        true_vals = {'si', 'yes', 'on', 'true'}
-        false_vals = {'no', 'off', 'false'}
+        true_vals = {'1', 1, 'si', 'yes', 'on', 'true'}
+        false_vals = {'0', 0, 'no', 'off', 'false'}
 
         for token in context.tokens:
             if token.type == TokenType.BOOLEAN:
@@ -28,6 +29,137 @@ class NormalizeBooleansRule(Rule):
                     changed = True
 
         if changed:
+            context.mark_changed()
+            context.record_rule(self.name)
+
+
+@RuleRegistry.register(tags=["values", "normalization"], priority=20)
+class MergeFreeTextValueRule(Rule):
+    """
+    Une tokens consecutivos en un único valor de tipo string después de un separador (: o =),
+    para manejar texto libre que el tokenizador podría haber separado.
+    Se detiene ante una coma, cierre de estructura (}, ]) o el inicio de una nueva clave.
+
+    Ejemplo: `user: admin // superuser` se convierte en `"user": "admin // superuser"`
+    """
+
+    def applies(self, context: Context) -> bool:
+        tokens = context.tokens
+        for i in range(len(tokens) - 2):
+            if tokens[i].type in (TokenType.COLON, TokenType.ASSIGN):
+                # Potencial inicio de un valor multi-token.
+                val_token1 = tokens[i + 1]
+                val_token2 = tokens[i + 2]
+
+                # No aplicar si el valor es una estructura JSON.
+                if val_token1.type in (TokenType.LBRACE, TokenType.LBRACKET):
+                    continue
+
+                # Si el siguiente token ya es un delimitador, no hay nada que unir.
+                if val_token2.type in (TokenType.COMMA, TokenType.RBRACE, TokenType.RBRACKET):
+                    continue
+
+                # Comprobar si `val_token2` es el inicio de una nueva clave.
+                # Patrón: `: valor1 clave2 :`
+                if i + 3 < len(tokens) and tokens[i + 3].type in (TokenType.COLON, TokenType.ASSIGN):
+                    if val_token2.type in (TokenType.BARE_WORD, TokenType.STRING):
+                        continue
+
+                # Si llegamos aquí, tenemos un patrón como `: token1 token2 ...` que no es una nueva clave.
+                # Esto indica que los tokens deben unirse.
+                return True
+        return False
+
+    def apply(self, context: Context):
+        new_tokens = []
+        i = 0
+        changed = False
+
+        while i < len(context.tokens):
+            token = context.tokens[i]
+
+            if token.type in (TokenType.COLON, TokenType.ASSIGN) and i + 1 < len(context.tokens):
+                new_tokens.append(token)  # Conservar el separador
+
+                val_start_idx = i + 1
+                val_end_idx = -1
+
+                # Buscar el final del valor.
+                for j in range(val_start_idx, len(context.tokens)):
+                    current_val_token = context.tokens[j]
+
+                    # El valor termina con un delimitador.
+                    if current_val_token.type in (TokenType.COMMA, TokenType.RBRACE, TokenType.RBRACKET):
+                        val_end_idx = j - 1
+                        break
+
+                    # Verificaciones de lookahead para detectar nuevas claves
+                    if j + 1 < len(context.tokens):
+                        next_token = context.tokens[j + 1]
+                        
+                        # 2. Detectar inicio de clave simple: NEXT + COLON
+                        # Ejemplo: ... valor clave : ...
+                        if next_token.type in (TokenType.BARE_WORD, TokenType.STRING) and \
+                           j + 2 < len(context.tokens) and \
+                           context.tokens[j + 2].type in (TokenType.COLON, TokenType.ASSIGN):
+                            val_end_idx = j
+                            break
+                    
+                    # Si no hay delimitador, el valor se extiende hasta el final.
+                    val_end_idx = j
+
+                if val_end_idx < val_start_idx:
+                    i += 1
+                    continue
+
+                tokens_to_merge = context.tokens[val_start_idx : val_end_idx + 1]
+
+                # Regla del usuario: NO aplicar si el valor es NUMBER, BOOLEAN, NULL ni estructura.
+                # Si es un solo token y es de tipo preservable, no fusionar (dejarlo como está)
+                if len(tokens_to_merge) == 1:
+                    single = tokens_to_merge[0]
+                    if single.type in (TokenType.NUMBER, TokenType.BOOLEAN, TokenType.NULL):
+                        new_tokens.append(single)
+                        i = val_end_idx + 1
+                        continue
+
+                # Solo unir si no contienen estructuras.
+                can_merge = len(tokens_to_merge) > 0 and \
+                            all(t.type not in (TokenType.LBRACE, TokenType.RBRACE, TokenType.LBRACKET, TokenType.RBRACKET, TokenType.COLON, TokenType.ASSIGN) for t in tokens_to_merge)
+
+                if can_merge:
+                    first_token = tokens_to_merge[0]
+                    last_token = tokens_to_merge[-1]
+                    
+                    # Extraer el texto original para preservar espacios y caracteres especiales.
+                    start_pos = first_token.position
+                    end_pos = last_token.position + len(last_token.raw_value)
+                    # CORRECCIÓN: Usar initial_text en lugar de text.
+                    merged_value_str = context.initial_text[start_pos:end_pos].strip()
+
+                    # Crear un único token de tipo STRING. El finalizador se encargará de las comillas.
+                    new_token = core_token.Token(
+                        type=TokenType.STRING,
+                        value=merged_value_str,
+                        raw_value=merged_value_str,
+                        position=first_token.position,
+                        line=first_token.line,
+                        column=first_token.column
+                    )
+                    new_tokens.append(new_token)
+                    
+                    i = val_end_idx + 1
+                    changed = True
+                else:
+                    # No se pudo unir, copiar los tokens tal cual.
+                    new_tokens.extend(tokens_to_merge)
+                    i = val_end_idx + 1
+            else:
+                new_tokens.append(token)
+                i += 1
+
+        if changed:
+            context.tokens = new_tokens
             context.mark_changed()
             context.record_rule(self.name)
 
@@ -150,7 +282,7 @@ class MergeAdjacentStringsRule(Rule):
                     i += 1
 
                 # Crear token unificado
-                new_tokens.append(Token(
+                new_tokens.append(core_token.Token(
                     type=TokenType.STRING,
                     value=f'"{merged_value}"',
                     raw_value=f'"{merged_value}"',
@@ -166,39 +298,3 @@ class MergeAdjacentStringsRule(Rule):
             context.tokens = new_tokens
             context.mark_changed()
             context.record_rule(self.name)
-
-
-# ============================================================
-# EJEMPLOS DE COMPORTAMIENTO ESPERADO
-# ============================================================
-
-"""
-CASO 1: Valores multi-palabra (DEBE UNIR)
-Input:  user: este es un administrador
-Tokens: "user", :, "este", "es", "un", "administrador"
-                    ↑ Todos después de :, ninguno seguido de :
-Result: "user", :, "este es un administrador" ✅
-
-CASO 2: Valor seguido de clave (NO DEBE UNIR)
-Input:  user: admin active: si
-Tokens: "user", :, "admin", "active", :, true
-                             ↑        ↑
-                        Después de :  Seguida de :
-Result: "user", :, "admin", "active", :, true ✅
-        (NO unir "admin" + "active")
-
-CASO 3: Clave multi-palabra (DEBE UNIR)
-Input:  deposito fecha: 2026-01-01
-Tokens: "deposito", "fecha", :, "2026-01-01"
-                    ↑        ↑
-           Antes de :  Seguida de :
-Result: "deposito fecha", :, "2026-01-01" ✅
-
-CASO 4: Múltiples valores seguidos de clave (PARCIAL)
-Input:  user: uno dos tres active: si
-Tokens: "user", :, "uno", "dos", "tres", "active", :, true
-                    ↑     ↑      ↑        ↑
-                 Después de :              Seguida de :
-Result: "user", :, "uno dos tres", "active", :, true ✅
-        (Unir "uno"+"dos"+"tres", NO unir con "active")
-"""
